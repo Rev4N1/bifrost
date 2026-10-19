@@ -2,7 +2,7 @@
 # ========================================================
 # wifi-watch.sh - Telegram home/away notifier
 #
-# Runs ONLY on ax6000-main. All logic is centralized here;
+# Runs ONLY on the main router. All logic is centralized here;
 # the dumb APs run no agent, they are only queried.
 #
 # ---- Detection model -----------------------------------

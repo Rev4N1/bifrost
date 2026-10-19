@@ -1,7 +1,8 @@
 # wifi-watch (addon)
 
-Telegram home/away notifier for a home network: `ax6000-main` plus two
-`ax4200` dumb APs bridged onto the same LAN.
+Telegram home/away notifier: tells a chat when someone's phone joins or leaves
+the network, watching the main router and every dumb AP. `AP_HOSTS` in
+`wifi-watch.conf` lists the same AP addresses as `APS` in `network.conf`.
 
 **This is an addon.** It never touches wireless, network, dhcp or firewall
 config. `../setup/` owns those, and nothing here duplicates or contradicts
@@ -50,15 +51,13 @@ rounds that re-query the APs. A roam is seconds wide.
 
 ## Install
 
-From the repo root, with the router reachable:
-
-```sh
-scp -O -r router/addon-wifi-watch root@192.168.1.1:/tmp/
-ssh -t root@192.168.1.1 'sh /tmp/addon-wifi-watch/install.sh'
+```bash
+./deploy.sh wifi-watch
 ```
 
-The installer is idempotent, so re-run it after every flash or after editing
-anything here, `wifi-watch.conf` included. Each run:
+`./deploy.sh routers` runs it too, once `wifi-watch.conf` exists. It's
+idempotent, so re-run it after every flash or after editing anything here,
+`wifi-watch.conf` included. Each run:
 
 - installs `curl`, `arping`, `timeout` and an SSH client if missing (a flash
   removes them)
@@ -70,16 +69,20 @@ anything here, `wifi-watch.conf` included. Each run:
   settings" doesn't force re-authorizing the APs
 - restarts the service and runs a self-test
 
-AP authorization uses the key if it already works. If not, it falls back to
-`AP_PASSWORD="<root pw>"` from the environment, if set, or else an interactive
-password prompt (hence `ssh -t`). The password is never written to disk.
+AP authorization uses the key if it already works; otherwise it asks for each
+AP's root password once. The password is never written to disk.
 
-```sh
-sh install.sh --check      # diagnose an existing install
-sh install.sh --uninstall  # remove (leaves the SSH key and authorized_keys line)
+After a deploy, the installer stays in `/tmp` on the router until its next
+reboot:
+
+```bash
+ssh root@192.168.1.1 sh /tmp/addon-wifi-watch/install.sh --check      # diagnose
+ssh root@192.168.1.1 sh /tmp/addon-wifi-watch/install.sh --uninstall  # remove (leaves the SSH key)
 ```
 
 ## Operating
+
+On the main router (`ssh root@192.168.1.1`):
 
 ```sh
 logread -e wifi-watch   # what the notifier decided and why
@@ -99,7 +102,7 @@ Log lines worth knowing:
 
 ## Configuration
 
-Everything is in `wifi-watch.conf`. Re-run `install.sh` to apply.
+Everything is in `wifi-watch.conf`. Run `./deploy.sh wifi-watch` to apply.
 
 People are `hostname-substring=name` pairs:
 

@@ -2,10 +2,7 @@
 # ========================================================
 # wifi-watch installer
 #
-# Run this ON ax6000-main, from a copy of this directory:
-#
-#   scp -O -r router/addon-wifi-watch root@192.168.1.1:/tmp/
-#   ssh root@192.168.1.1 'sh /tmp/addon-wifi-watch/install.sh'
+# Runs ON the main router; from the PC:  ./deploy.sh wifi-watch
 #
 # This is an ADDON. It never touches wireless, network, dhcp
 # or firewall config - the setup/ scripts own those. The only
@@ -19,12 +16,8 @@
 #   install.sh              install / upgrade
 #   install.sh --check      diagnose an existing install
 #   install.sh --uninstall  remove (leaves the SSH key)
-#
-# Optional: AP_PASSWORD=... to authorize the APs without a
-# prompt. Used only during this run, never written to disk.
 # ========================================================
 
-AP_PASSWORD="${AP_PASSWORD:-}"
 BIN_DIR="/usr/bin"
 LIB_DIR="/usr/lib/wifi-watch"
 CONF_PATH="/etc/wifi-watch.conf"
@@ -55,7 +48,7 @@ ww_load_conf 2>/dev/null || [ "$1" = "--uninstall" ] || {
     echo "cannot read $WIFI_WATCH_CONF (cp wifi-watch.conf.example wifi-watch.conf, then fill it in)"
     exit 1
 }
-if [ -z "$1" ] && grep -q 'CHANGE_ME' "$WIFI_WATCH_CONF"; then
+if [ -z "$1" ] && grep -q '"CHANGE_ME"' "$WIFI_WATCH_CONF"; then
     echo "$WIFI_WATCH_CONF still has CHANGE_ME placeholders"
     exit 1
 fi
@@ -169,7 +162,7 @@ make_key() {
 }
 
 # Append our public key to one AP. Uses key auth if it already works,
-# otherwise AP_PASSWORD, otherwise an interactive password prompt.
+# otherwise asks for the AP's root password.
 push_key() {
     _h="$1"
     if key_works "$_h"; then
@@ -192,15 +185,8 @@ push_key() {
          sort -u /etc/dropbear/authorized_keys -o /etc/dropbear/authorized_keys &&
          chmod 600 /etc/dropbear/authorized_keys'
 
-    if [ -n "$AP_PASSWORD" ] && [ "$SSH_KIND" = dropbear ]; then
-        # dbclient reads the password from the environment.
-        say "  $_h - authorizing (using AP_PASSWORD)"
-        printf '%s\n' "$_pub" | DROPBEAR_PASSWORD="$AP_PASSWORD" \
-            "$SSH_BIN" $SSH_ASK "root@$_h" "$_append" >/dev/null 2>&1
-    else
-        say "  $_h - authorizing (enter the AP's root password if prompted)"
-        printf '%s\n' "$_pub" | "$SSH_BIN" $SSH_ASK "root@$_h" "$_append" >/dev/null 2>&1
-    fi
+    say "  $_h - authorizing (enter the AP's root password)"
+    printf '%s\n' "$_pub" | "$SSH_BIN" $SSH_ASK "root@$_h" "$_append" >/dev/null 2>&1
 
     if key_works "$_h"; then
         ok "$_h - authorized"

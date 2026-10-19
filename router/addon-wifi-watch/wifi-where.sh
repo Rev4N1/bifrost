@@ -2,7 +2,7 @@
 # ========================================================
 # wifi-where.sh - show which AP each device is associated to
 #
-# Run by hand on ax6000-main. Read-only, sends nothing.
+# Run by hand on the main router. Read-only, sends nothing.
 # Uses the same SSH plumbing and the same MAC->person map
 # as wifi-watch.sh, so what it prints is exactly what the
 # notifier is deciding on.

@@ -1,7 +1,7 @@
 #!/bin/ash
 # ========================================================
-# Shared provisioning steps, sourced by main-ap_ax6000.sh
-# and dumb-ap_ax4200.sh. Every step is safe to re-run: it
+# Shared provisioning steps, sourced by main-router.sh
+# and dumb-ap.sh. Every step is safe to re-run: it
 # sets values rather than appending them, so running a
 # setup script on an already-provisioned router (e.g. after
 # every firmware flash) converges to the same config.
@@ -21,7 +21,7 @@ die()  { printf '  [FAIL] %s\n' "$*"; exit 1; }
 
 [ -f "$SETUP_DIR/network.conf" ] || die "network.conf not found next to $0 (cp network.conf.example network.conf, then fill it in)"
 . "$SETUP_DIR/network.conf"
-grep -q 'CHANGE_ME' "$SETUP_DIR/network.conf" && die "network.conf still has CHANGE_ME placeholders"
+grep -q '"CHANGE_ME"' "$SETUP_DIR/network.conf" && die "network.conf still has CHANGE_ME placeholders"
 
 [ -f /etc/openwrt_release ] || die "this does not look like OpenWrt"
 

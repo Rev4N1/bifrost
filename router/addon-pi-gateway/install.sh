@@ -1,12 +1,8 @@
 #!/bin/sh
 # ========================================================
 # addon-pi-gateway installer - the router side of the Pi
-# WireGuard gateway (pi/PI_ZERO_SETUP.md).
-#
-# Run this ON ax6000-main, from a copy of this directory:
-#
-#   scp -O -r router/addon-pi-gateway root@192.168.1.1:/tmp/
-#   ssh root@192.168.1.1 'sh /tmp/addon-pi-gateway/install.sh'
+# WireGuard gateway (pi/README.md). Runs ON the main router;
+# from the PC:  ./deploy.sh pi-gateway [<user>@<pi>]
 #
 # What it owns on the router, and nothing else:
 #   - USB-ethernet drivers so the Pi shows up as $PI_PORT
@@ -38,7 +34,7 @@ hdr()  { printf '\n== %s\n' "$*"; }
 
 [ -r "$CONF" ] || { echo "cannot read $CONF (cp pi-gateway.conf.example pi-gateway.conf, then fill it in)"; exit 1; }
 . "$CONF"
-if [ "$1" != "--uninstall" ] && grep -q 'CHANGE_ME' "$CONF"; then
+if [ "$1" != "--uninstall" ] && grep -q '"CHANGE_ME"' "$CONF"; then
     echo "$CONF still has CHANGE_ME placeholders"
     exit 1
 fi

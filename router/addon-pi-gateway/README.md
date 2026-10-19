@@ -1,8 +1,7 @@
 # pi-gateway (addon)
 
-The router side of the Pi WireGuard gateway (`../../pi/PI_ZERO_SETUP.md`). It
-replaces the LuCI clicks the Pi guide used to need, so a router flash can no
-longer silently break the VPN.
+The router side of the Pi WireGuard gateway ([pi/README.md](../../pi/README.md)),
+so a router flash can never silently break the VPN.
 
 | What | Where on the router | Section |
 |---|---|---|
@@ -12,21 +11,20 @@ longer silently break the VPN.
 | Port forward WAN `udp/51820` → Pi | `firewall` | `pigw_wireguard` |
 
 It never touches what `../setup/` owns. Any other lease for the same MAC or IP,
-or other forward of the same WAN port (such as the ones made by hand in LuCI),
-is replaced, so there's exactly one of each.
+or other forward of the same WAN port (such as one made by hand in LuCI), is
+replaced, so there's exactly one of each.
 
 ## Install
 
-```sh
-cp router/addon-pi-gateway/pi-gateway.conf.example router/addon-pi-gateway/pi-gateway.conf
-# fill in PI_MAC, then from the repo root:
-scp -O -r router/addon-pi-gateway root@192.168.1.1:/tmp/
-ssh root@192.168.1.1 'sh /tmp/addon-pi-gateway/install.sh'
+```bash
+./deploy.sh pi-gateway <user>@<pi address>   # first time: reads the Pi's MAC into pi-gateway.conf
+./deploy.sh pi-gateway                       # after that, e.g. after every router flash
 ```
 
-Re-run it after every router flash, or after editing `pi-gateway.conf`.
+`./deploy.sh routers` runs it too, once `pi-gateway.conf` exists. After a
+deploy, the installer stays in `/tmp` on the router until its next reboot:
 
-```sh
-sh install.sh --check      # drivers, bridge, leases, forward, Pi ping, WAN not CGNAT
-sh install.sh --uninstall  # remove leases, forward, bridge port (drivers stay)
+```bash
+ssh root@192.168.1.1 sh /tmp/addon-pi-gateway/install.sh --check      # drivers, bridge, lease, forward, Pi ping, WAN not CGNAT
+ssh root@192.168.1.1 sh /tmp/addon-pi-gateway/install.sh --uninstall  # remove lease, forward, bridge port (drivers stay)
 ```

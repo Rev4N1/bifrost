@@ -1,6 +1,6 @@
 #!/bin/sh /etc/rc.common
 # procd service wrapper for wifi-watch.sh
-# Installed as /etc/init.d/wifi-watch on ax6000-main
+# Installed as /etc/init.d/wifi-watch on the main router
 
 START=99
 USE_PROCD=1

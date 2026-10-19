@@ -2,3 +2,4 @@
 router/setup/network.conf
 router/addon-wifi-watch/wifi-watch.conf
 router/addon-pi-gateway/pi-gateway.conf
+pi/pi.conf
