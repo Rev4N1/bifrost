@@ -1,0 +1,39 @@
+# ========================================================
+# Shared settings for every router on the network.
+# Sourced by main-ap_ax6000.sh and dumb-ap_ax4200.sh, so the
+# values that MUST match across APs for roaming (SSID, PSK,
+# mobility domain, country) live in exactly one place.
+#
+# Holds every secret the setup scripts use. network.conf is
+# git-ignored; network.conf.example is the committed template:
+#   cp network.conf.example network.conf   # then fill it in
+# ========================================================
+
+# Wi-Fi
+SSID="CHANGE_ME"
+WPA_PSK="CHANGE_ME"
+COUNTRY="CHANGE_ME"        # ISO 3166 code, sets the legal channels/power (e.g. DE, FR, US)
+
+# 2.4 GHz transmit power (dBm) on every AP; empty = regulatory max (20).
+# Lower than 5 GHz so dual-band clients prefer 5 GHz and the three
+# 2.4 GHz cells overlap less. 5 GHz always runs at the regulatory max.
+TXPOWER_24="17"
+
+# 802.11r: identical on every AP
+MOBILITY_DOMAIN="a1b2"
+
+# Root password for every router
+ROOT_PASSWORD="CHANGE_ME"
+
+# WAN login (main router only)
+PPPOE_USER="CHANGE_ME"
+PPPOE_PASS="CHANGE_ME"
+
+# Main router / gateway
+GW_IP="192.168.1.1"
+NETMASK="255.255.255.0"
+
+# Time
+ZONENAME="CHANGE_ME"       # e.g. Europe/Berlin
+TIMEZONE="CHANGE_ME"       # POSIX TZ for it, e.g. CET-1CEST,M3.5.0,M10.5.0/3
+NTP_SERVER="pool.ntp.org"

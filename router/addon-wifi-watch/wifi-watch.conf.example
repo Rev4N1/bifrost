@@ -1,0 +1,33 @@
+# ========================================================
+# wifi-watch configuration. Installed to /etc/wifi-watch.conf
+# by install.sh (overwritten on every run: this file is the
+# source of truth). Sourced as shell by every wifi-watch tool.
+#
+# wifi-watch.conf is git-ignored (bot token, people); the
+# committed template is wifi-watch.conf.example:
+#   cp wifi-watch.conf.example wifi-watch.conf   # then fill it in
+# ========================================================
+
+# Telegram
+BOT_TOKEN="CHANGE_ME"   # from @BotFather
+CHAT_ID="CHANGE_ME"     # group or user chat id
+
+# People. "<DHCP hostname substring>=<name>", space separated.
+# Names: no spaces. Several devices may map to the same name.
+PEOPLE="Pixel-8=Alice iPhone-Bob=Bob"
+
+# Optional: "<mac>=<name>" for a device that registers no DHCP
+# hostname (dnsmasq records it as "*"). Lowercase MAC.
+PEOPLE_MAC=""
+
+# Dumb APs to query over SSH. Empty = ARP + local radios only.
+AP_HOSTS="192.168.1.2 192.168.1.3"
+
+# Tuning (see README)
+POLL_INTERVAL=30        # seconds between presence checks
+MISSES_TO_LEAVE=4       # consecutive failed checks before declaring "left"
+CONFIRM_ROUNDS=3        # extra probe rounds fired before actually sending "left"
+CONFIRM_GAP=5           # seconds between those confirmation rounds
+ARPING_TRIES=3          # ARP requests per probe (first reply wins)
+INITIAL_SETTLE=45       # seconds to wait at startup for wifi/leases to populate
+AP_FAIL_GRACE=10        # polls an AP may be unreachable before it stops blocking departures

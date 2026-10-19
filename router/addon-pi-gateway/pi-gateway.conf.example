@@ -1,0 +1,19 @@
+# ========================================================
+# addon-pi-gateway configuration. Read by install.sh on the
+# main router; the router-side half of pi/PI_ZERO_SETUP.md.
+#
+# pi-gateway.conf is git-ignored; this .example is the
+# committed template:
+#   cp pi-gateway.conf.example pi-gateway.conf   # then fill it in
+# ========================================================
+
+# The Pi, as the router sees it
+PI_NAME="pi-zero-2w"
+PI_MAC="CHANGE_ME"          # Pi's usb0 MAC (frozen at first boot, printed by Pi guide Part 2)
+HOST_MAC="CHANGE_ME"        # router-side MAC, same source. Not used here: kept to
+                            # give a reflashed Pi its old MACs (Pi guide Part 2)
+PI_IP="192.168.1.5"
+PI_PORT="usb0"              # router-side interface the Pi appears as
+
+# WireGuard: forwarded from WAN to the Pi
+WG_PORT="51820"
