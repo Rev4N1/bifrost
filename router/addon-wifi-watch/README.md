@@ -1,8 +1,8 @@
 # wifi-watch (addon)
 
 Telegram home/away notifier: tells a chat when someone's phone joins or leaves
-the network, watching the main router and every dumb AP. `AP_HOSTS` in
-Its settings are the bot part of `bifrost.conf`; the APs it watches come from `APS`.
+the network, watching the main router and every dumb AP. Its settings are
+part 5 of `bifrost.conf`; the APs it watches come from `APS` in part 4.
 
 **This is an addon.** It never touches wireless, network, dhcp or firewall
 config. `../setup/` owns those, and nothing here duplicates or contradicts
@@ -26,7 +26,7 @@ both to fail in the same instant.
 
 | | Source | Why it holds up |
 |---|---|---|
-| **1. Association** | `hostapd` via ubus — locally on the main router, over SSH on `.2`/`.3` | Authoritative. The AP knows a phone is there whether or not it answers packets. Immune to power-save. |
+| **1. Association** | `hostapd` via ubus — locally on the main router, over SSH on each dumb AP | Authoritative. The AP knows a phone is there whether or not it answers packets. Immune to power-save. |
 | **2. ARP reachability** | broadcast `arping` to each leased IP | ARP requests are *broadcast*, so they flood every bridge port and find a phone that just roamed. Wi-Fi chipsets answer ARP in firmware (ARP offload), so this survives doze. |
 
 The main router reads its own radios locally over ubus — no SSH, no key, no
@@ -35,10 +35,9 @@ failure mode. Only the dumb APs need the key.
 Three guarantees on top:
 
 - **Person-keyed state, not MAC-keyed.** Modern phones use randomized MACs
-  that can rotate. A MAC-keyed machine reads a rotation as "arrived" +
-  "left". hostapd's MAC-only
-  view is translated through a persistent MAC→person map learned from the DHCP
-  leases, so a rotation is absorbed.
+  that can rotate, and a MAC-keyed watcher reads a rotation as "arrived" plus
+  "left". hostapd's MAC-only view goes through a persistent MAC→person map
+  learned from the DHCP leases, so a rotation is absorbed.
 - **An unreachable AP holds departures.** One signal down means degraded data,
   so state is held and logged rather than announced. Bounded by
   `AP_FAIL_GRACE` polls so an AP that is genuinely unplugged can't wedge the
@@ -46,8 +45,8 @@ Three guarantees on top:
 - **Silent seeding on cold start,** so a reboot or procd respawn doesn't
   announce the whole household.
 
-A departure needs 4 consecutive misses (~2 min) **and** 3 further confirmation
-rounds that re-query the APs. A roam is seconds wide.
+With the default tuning, a departure needs 4 consecutive misses (~2 min) **and**
+3 further confirmation rounds that re-query the APs. A roam is seconds wide.
 
 ## Install
 
@@ -62,27 +61,24 @@ idempotent, so re-run it after every flash or after editing anything here,
 - installs `curl`, `arping`, `timeout` and an SSH client if missing (a flash
   removes them)
 - reuses or creates `/root/.ssh/wifi-watch` and authorizes it on each AP that
-  doesn't already accept it
+  doesn't already accept it, using `ROOT_PASSWORD` (never written to disk)
 - copies the files, overwriting `/etc/wifi-watch.conf` with the one
   `deploy.sh` wrote from `bifrost.conf` (the source of truth)
 - lists the config and key in `/etc/sysupgrade.conf`, so a flash with "keep
   settings" doesn't force re-authorizing the APs
 - restarts the service and runs a self-test
 
-AP authorization uses the key if it already works; otherwise it asks for each
-AP's root password once. The password is never written to disk.
-
 After a deploy, the installer stays in `/tmp` on the router until its next
 reboot:
 
 ```bash
-ssh root@192.168.1.1 sh /tmp/addon-wifi-watch/install.sh --check      # diagnose
-ssh root@192.168.1.1 sh /tmp/addon-wifi-watch/install.sh --uninstall  # remove (leaves the SSH key)
+ssh -i ~/.ssh/bifrost_ed25519 root@192.168.1.1 sh /tmp/addon-wifi-watch/install.sh --check      # diagnose
+ssh -i ~/.ssh/bifrost_ed25519 root@192.168.1.1 sh /tmp/addon-wifi-watch/install.sh --uninstall  # remove (leaves the SSH key)
 ```
 
 ## Operating
 
-On the main router (`ssh root@192.168.1.1`):
+On the main router (`ssh -i ~/.ssh/bifrost_ed25519 root@192.168.1.1`):
 
 ```sh
 logread -e wifi-watch   # what the notifier decided and why
@@ -102,7 +98,7 @@ Log lines worth knowing:
 
 ## Configuration
 
-Everything is in the bot part of `bifrost.conf`. Run `./deploy.sh wifi-watch` to apply.
+Everything is in part 5 of `bifrost.conf`. Run `./deploy.sh wifi-watch` to apply.
 
 People are `hostname-substring=name` pairs:
 
@@ -122,12 +118,10 @@ If Telegram is unreachable (WAN down, PPPoE reconnecting), messages go to a
 queue (`/tmp/wifi-watch/.outbox`) and are sent, in order and with the original
 time attached, as soon as it comes back.
 
-## Known environment quirks
+## Why the extra packages
 
-- **No `sftp-server`** on OpenWrt — use `scp -O`.
-- **No `timeout` applet** in this busybox build. The installer adds
-  `coreutils-timeout`; `wifi-watch.sh` also ping-gates each AP before spending
-  an SSH handshake, so a powered-off AP fails in 2 s instead of stalling the
-  poll loop on TCP connect.
-- **`arping` is not in busybox here** — the installer adds `iputils-arping`.
-  Without it the ARP signal degrades to ICMP and roam false-positives return.
+- **`arping`** (`iputils-arping`) isn't in OpenWrt's busybox. Without it, the
+  ARP signal falls back to ping, and phones that just roamed can look gone.
+- **`timeout`** (`coreutils-timeout`) caps each AP query. `wifi-watch.sh` also
+  pings an AP before asking it, so a powered-off AP fails in 2 s instead of
+  stalling the loop.

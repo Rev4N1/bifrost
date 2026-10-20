@@ -1,80 +1,106 @@
 # ========================================================
 # bifrost.conf - every setting and secret, in one file.
-# deploy.sh reads it and hands each device only what it needs.
+# deploy.sh reads it and gives each device only its part.
 #
 #   cp -n bifrost.conf.example bifrost.conf
 #
-# bifrost.conf is git-ignored. Fill in every CHANGE_ME of the
-# parts you use; an optional part is skipped while its key
-# setting is empty.
+# Git-ignored; keep a backup somewhere safe (it holds every
+# password). Fill in every CHANGE_ME. Parts 5 and 6 are
+# optional and stay off while left empty.
 # ========================================================
 
-# ======== Routers (required) ========
 
-# Wi-Fi: identical on every router (roaming needs it)
-SSID="CHANGE_ME"
-WPA_PSK="CHANGE_ME"
-COUNTRY="CHANGE_ME"         # ISO 3166 code: legal channels/power (e.g. DE, FR, US)
-MOBILITY_DOMAIN="a1b2"      # 802.11r, any 4 hex digits
-BW24="20"                   # 2.4 GHz width (MHz)
-BW5="80"                    # 5 GHz width (MHz)
-TXPOWER_24="17"             # 2.4 GHz dBm; lower than 5 GHz so clients prefer 5 GHz. Empty = max
+# ======== 1. Basics ========
 
-# Main router
-MAIN_HOSTNAME="router-main"
+# Your LAN (the main router is the gateway)
 GW_IP="192.168.1.1"
 NETMASK="255.255.255.0"
 LAN_SUBNET="192.168.1.0/24"
-WAN_DEVICE="eth1"           # the WAN port's name in OpenWrt (uci show network | grep wan)
-PPPOE_USER="CHANGE_ME"
-PPPOE_PASS="CHANGE_ME"
-MAIN_CH24="1"
-MAIN_CH5="36"
-DNS_LIST="9.9.9.11 149.112.112.11"   # upstream resolvers
-DHCP_DNS_OPTION=""          # DNS handed to clients; empty = the router. e.g. "6,192.168.1.1,9.9.9.9"
-UPNP="0"                    # 1 = UPnP/NAT-PMP on (lets consoles/apps open ports), 0 = off
 
-# Dumb APs: "hostname,ip,ch24,ch5", space separated. 2.4 GHz: use 1, 6,
-# 11. 5 GHz at 80 MHz: 36 = 36-48 (no DFS), 52 = 52-64 (DFS, but most
-# devices support it). Avoid 100+: many phones and IoT devices can't see
-# it. APs that can't hear each other can share a channel.
-APS="ap1,192.168.1.2,6,52 ap2,192.168.1.3,11,52"
-
-# Every router
-ROOT_PASSWORD="CHANGE_ME"   # also lets deploy.sh install its SSH key on each router, once
+# Where you are: legal Wi-Fi channels and power, and the clock
+COUNTRY="CHANGE_ME"         # ISO 3166 code, e.g. DE, FR, US
 ZONENAME="CHANGE_ME"        # e.g. Europe/Berlin
 TIMEZONE="CHANGE_ME"        # POSIX TZ for it, e.g. CET-1CEST,M3.5.0,M10.5.0/3
 NTP_SERVER="pool.ntp.org"
 
-# ======== Telegram home/away bot (optional: empty BOT_TOKEN = off) ========
+# Root password on every router. deploy.sh also uses it once per
+# router to install its own SSH key, so it never asks again.
+ROOT_PASSWORD="CHANGE_ME"
+
+
+# ======== 2. Internet (main router) ========
+
+WAN_DEVICE="eth1"           # the WAN port's name in OpenWrt (uci show network | grep wan)
+PPPOE_USER="CHANGE_ME"
+PPPOE_PASS="CHANGE_ME"
+DNS_LIST="9.9.9.11 149.112.112.11"   # upstream resolvers, space separated
+DHCP_DNS_OPTION=""          # DNS handed to your devices; empty = the router. e.g. "6,192.168.1.1,9.9.9.9"
+UPNP="0"                    # 1 = UPnP/NAT-PMP on (lets consoles and apps open ports)
+
+
+# ======== 3. Wi-Fi (identical on every router, for roaming) ========
+
+SSID="CHANGE_ME"
+WPA_PSK="CHANGE_ME"
+MOBILITY_DOMAIN="a1b2"      # 802.11r, any 4 hex digits
+BW24="20"                   # 2.4 GHz width (MHz)
+BW5="80"                    # 5 GHz width (MHz)
+TXPOWER_24="17"             # 2.4 GHz power (dBm), lower so devices prefer 5 GHz. Empty = max
+
+
+# ======== 4. Routers and channels ========
+# 2.4 GHz: use 1, 6 and 11. 5 GHz at 80 MHz: 36 = 36-48 (no DFS),
+# 52 = 52-64 (DFS, but most devices support it). Avoid 100+: many
+# phones and IoT devices can't see it. Routers that can't hear each
+# other can share a channel.
+
+MAIN_HOSTNAME="router-main"
+MAIN_CH24="1"
+MAIN_CH5="36"
+
+# Dumb APs: "hostname,ip,ch24,ch5", space separated
+APS="ap1,192.168.1.2,6,52 ap2,192.168.1.3,11,52"
+
+
+# ======== 5. Telegram home/away bot (optional: off while BOT_TOKEN is empty) ========
 
 BOT_TOKEN=""                # from @BotFather
 CHAT_ID=""                  # group or user chat id
-# People: "<DHCP hostname substring>=<name>", space separated (names: no spaces)
-PEOPLE=""                   # e.g. "Pixel-8=Alice iPhone-Bob=Bob"
-PEOPLE_MAC=""               # fallback for devices with no DHCP hostname: "aa:bb:cc:dd:ee:ff=Alice"
-# Tuning (see router/addon-wifi-watch/README.md)
-POLL_INTERVAL=30
-MISSES_TO_LEAVE=4
-CONFIRM_ROUNDS=3
-CONFIRM_GAP=5
-ARPING_TRIES=3
-INITIAL_SETTLE=45
-AP_FAIL_GRACE=10
+PEOPLE=""                   # "<DHCP hostname part>=<name>", e.g. "Pixel-8=Alice iPhone-Bob=Bob"
+PEOPLE_MAC=""               # for devices with no DHCP hostname: "aa:bb:cc:dd:ee:ff=Alice"
 
-# ======== Pi WireGuard gateway (optional: empty PI_MAC = router side off) ========
+# Tuning (router/addon-wifi-watch/README.md explains each)
+POLL_INTERVAL=30            # seconds between checks
+MISSES_TO_LEAVE=4           # failed checks in a row before "left"
+CONFIRM_ROUNDS=3            # extra checks before sending "left"
+CONFIRM_GAP=5               # seconds between those
+ARPING_TRIES=3              # ARP requests per check
+INITIAL_SETTLE=45           # seconds to wait after a start
+AP_FAIL_GRACE=10            # checks an AP may be unreachable before it's ignored
+
+
+# ======== 6. Pi WireGuard gateway (optional, see pi/README.md) ========
+
+# Login: the user you create in Raspberry Pi Imager. With the password
+# here, deploy.sh installs its SSH key once and answers sudo itself.
+PI_USER=""
+PI_PASSWORD=""
 
 PI_NAME="pi-zero-2w"
 PI_IP="192.168.1.5"
-PI_USER=""                  # your user on the Pi (set in Imager)
-PI_PASSWORD=""              # its password: installs deploy.sh's SSH key once, and answers sudo. Empty = asked
-PI_MAC=""                   # filled in by ./deploy.sh pi-gateway
-HOST_MAC=""                 # same; reused to give a reflashed Pi its old MACs
-WG_PORT="51820"
-VPN_SUBNET="10.7.0.0/24"    # the Pi is .1, clients from .2 up
-CLIENT_DNS="9.9.9.9, 1.1.1.1"
+
+# DuckDNS keeps <subdomain>.duckdns.org pointing at your home IP
 DUCKDNS_DOMAIN=""           # subdomain only, without .duckdns.org
-DUCKDNS_TOKEN=""            # empty = keep whatever the Pi already has
-# LAN services VPN clients may reach (everything else on the LAN is
-# blocked): "ip:proto:port", space separated. Give those hosts static IPs.
-VPN_LAN_ACCESS=""           # e.g. "192.168.1.20:tcp:3389 192.168.1.30:tcp:22"
+DUCKDNS_TOKEN=""            # empty = keep the one already on the Pi
+
+# WireGuard
+WG_PORT="51820"
+VPN_SUBNET="10.7.0.0/24"    # the Pi is .1, clients get .2 and up
+CLIENT_DNS="9.9.9.9, 1.1.1.1"
+VPN_LAN_ACCESS=""           # LAN services VPN clients may reach, "ip:proto:port", e.g. "192.168.1.20:tcp:3389"
+                            # (everything else on the LAN is blocked; give those hosts static IPs)
+
+# Filled in by "./deploy.sh pi-gateway"; the router side stays off until then.
+# Kept here so a reflashed Pi gets the same MACs and the router lease still matches.
+PI_MAC=""
+HOST_MAC=""

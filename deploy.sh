@@ -11,7 +11,8 @@
 #   ./deploy.sh pi-gateway [--usb]    router side of the Pi (records its MACs if needed)
 #
 #   ./deploy.sh sdcard                turn on USB gadget mode on a freshly flashed Pi card
-#   ./deploy.sh pi [--usb] [step]     run pi/setup.sh on the Pi (network|system|...|all)
+#   ./deploy.sh pi [--usb] [step]     run pi/setup.sh on the Pi (all|network|system|duckdns|
+#                                     wireguard|firewall|poweroff; default: all)
 #   ./deploy.sh pi client add NAME [IP] | revoke NAME | list
 #
 #   --usb: the Pi is plugged into this PC (first setup), not the router.
@@ -38,7 +39,7 @@ PI_VARS="PI_IP LAN_SUBNET WG_PORT VPN_SUBNET CLIENT_DNS DUCKDNS_DOMAIN DUCKDNS_T
 say() { printf '\n>>> %s\n' "$*"; }
 die() { printf 'deploy: %s\n' "$*" >&2; exit 1; }
 
-usage() { sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+usage() { sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 case "${1:-}" in
     routers|main|ap|wifi-watch|pi-gateway|pi|sdcard) ;;
     *) usage ;;
@@ -175,6 +176,8 @@ cmd_ap() {
     ip=$(ap_ip "$name"); target=$ip
     if [ "${2:-}" = --fresh ]; then
         target=$FACTORY_IP
+        # Same address as the main router: never reuse a connection to it.
+        SSH_OPTS=(-o ControlPath=none "${SSH_OPTS[@]}")
         say "$name is factory-fresh: only your PC should be plugged into it."
         echo "    It moves to $ip mid-run (the session freezes, that's fine). When it"
         echo "    says it's waiting for internet, plug it into the main LAN."

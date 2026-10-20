@@ -1,94 +1,112 @@
 # Bifrost
 
-The bridge to and across your home network, as code. OpenWrt 25.12 on one
-main router plus dumb APs over a wired backhaul, a Raspberry Pi Zero 2 W as
-WireGuard gateway, and optional addons. One command on your PC deploys any
-piece, and every piece is safe to re-run after a flash.
+The bridge to and across your home network, as code. OpenWrt routers (one main
+router plus dumb APs over a wired backhaul), an optional Raspberry Pi Zero 2 W
+as WireGuard gateway, and an optional Telegram home/away bot, all deployed from
+your PC with one command. Every step is safe to re-run, so after a firmware
+flash you just run it again.
 
 - **Routers:** one SSID everywhere with 802.11r/k/v/w fast roaming, `usteer`
-  steering clients to the best AP, non-overlapping channels, lower 2.4 GHz
-  power, hardware NAT offload, packet steering, and optional UPnP (`UPNP`),
-  reinstalled after every flash.
+  steering devices to the best AP, non-overlapping channels, lower 2.4 GHz
+  power, hardware NAT offload, packet steering, and optional UPnP.
 - **Pi:** a WireGuard endpoint on the main router's USB port, locked down with
   nftables, kept reachable by DuckDNS, and stripped down to what it uses, for
   free RAM and SD-card life.
-- **Addons:** a Telegram home/away notifier, and the router side of the Pi.
+- **Telegram bot:** tells a chat when someone's phone leaves or comes home.
 
-```
-bifrost.conf.example      every setting and secret, in one file (copy to bifrost.conf)
-deploy.sh                 the one command you run on the PC
-router/
-  setup/                  main router + dumb APs: network, wireless, dhcp, firewall
-  addon-wifi-watch/       Telegram home/away notifier (optional, own README)
-  addon-pi-gateway/       router side of the Pi: usb0, static lease, port forward
-pi/                       the Pi: setup.sh (own README)
-```
+## 1. What you need
 
-`router/setup/` never references an addon, and the addons never touch what it
-owns.
+- **Routers:** OpenWrt 25.12. One main router doing PPPoE, plus any number of
+  dumb APs cabled to it.
+- **PC:** Linux with `bash`, `ssh` and `scp`. `sshpass` is recommended so even
+  the first login to each device is silent (`sudo dnf install sshpass`). On
+  Windows, `deploy.sh` runs in Git Bash.
+- **Pi (optional):** a Raspberry Pi Zero 2 W with Raspberry Pi OS Lite
+  (64-bit), Trixie, from 2025-10-20 or later.
 
-## Configure
+## 2. Configure
 
-Everything lives in one git-ignored file. It's also the only file to copy
-when you move to another PC.
+Every setting and secret lives in one file:
 
 ```bash
 cp -n bifrost.conf.example bifrost.conf
 ```
 
-Fill in every `CHANGE_ME` in the router part. The bot and the Pi are optional:
-each stays off while its key setting (`BOT_TOKEN`, `PI_MAC`) is empty. Nothing
-about the layout is hard-coded: `APS` lists one `hostname,ip,ch24,ch5` entry
-per dumb AP. `PI_MAC` fills itself (see [pi/README.md](pi/README.md)).
+Open it and go top to bottom; it's ordered the way you'd fill it in. Replace
+every `CHANGE_ME`. Parts 5 (Telegram) and 6 (Pi) are optional and stay off
+while empty. Nothing about your layout is hard-coded: part 4 lists each AP as
+`hostname,ip,ch24,ch5`.
 
-`deploy.sh` hands each device only its own part of the file, as a small
-config written into a temporary copy on the PC (deleted when it exits). The
-Telegram token never reaches the APs, for example, and the router password
-never reaches the Pi.
+`bifrost.conf` is git-ignored and holds every password, so keep a backup
+somewhere safe, like a password manager or an encrypted USB stick. It's the
+only file you need to rebuild everything.
 
-## Deploy
+## 3. Routers
 
 ```bash
 ./deploy.sh routers
 ```
 
-That's the whole "after every router flash" routine: the main router, then each
-AP, waiting for each reboot, then the addons in use. Each step on
-its own:
+This sets up the main router, then each AP (waiting for each reboot), then the
+addons whose part of the config is filled in. Each piece also runs on its own:
 
 ```bash
 ./deploy.sh main
-./deploy.sh ap <hostname>            # add --fresh for an AP still at factory 192.168.1.1
+./deploy.sh ap <hostname>
 ./deploy.sh wifi-watch
 ./deploy.sh pi-gateway
 ```
 
-The Pi has its own walkthrough: [pi/README.md](pi/README.md).
-
-**A factory-fresh dumb AP** boots at 192.168.1.1, the same address as the main
+**A factory-fresh AP** boots at 192.168.1.1, the same address as the main
 router. Plug only your PC into it and run `./deploy.sh ap <hostname> --fresh`.
 It moves to its own IP mid-run. When it says it's waiting for internet, plug it
-into the main LAN. Without internet it keeps `wpad-basic` (802.11r works,
-802.11k/v doesn't); run it again later to fix that.
+into the main LAN.
 
-## Requirements
+## 4. Pi (optional)
 
-- **PC:** Linux with `bash`, `ssh` and `scp`; `sshpass` recommended
-  (`sudo dnf install sshpass`). On Windows, `deploy.sh` runs in Git Bash, except
-  `sdcard` (see [pi/README.md](pi/README.md)).
-- **Routers:** OpenWrt 25.12 (`apk`).
-- **Pi:** Raspberry Pi OS Lite (64-bit), Trixie, from 2025-10-20 or later.
+Follow [pi/README.md](pi/README.md). It's about 20 minutes, mostly waiting.
 
-**No password prompts.** `deploy.sh` logs in with its own SSH key
-(`~/.ssh/bifrost_ed25519`, created on first run). The first time it meets a
-device, it installs that key using the password from `bifrost.conf`
-(`ROOT_PASSWORD` for routers, `PI_PASSWORD` for the Pi). With `sshpass`
-installed that's silent; without it, that one login asks. "Keep settings" keeps
-the key on the routers across flashes, so after that nothing asks again. On the
-Pi, `sudo` is answered from `PI_PASSWORD` too.
+## 5. After every router flash
 
-Routers get a new SSH host key on every flash, so `deploy.sh` doesn't pin host
-keys; it only talks to your own devices on your LAN.
+Flash with **"Keep settings"** checked, then:
+
+```bash
+./deploy.sh routers
+```
+
+The Pi doesn't need anything. Before flashing, it's worth taking a rollback
+point of each router:
+
+```bash
+mkdir -p ~/router-backups && for ip in 192.168.1.1 192.168.1.2 192.168.1.3; do ssh -i ~/.ssh/bifrost_ed25519 root@$ip 'sysupgrade -b /tmp/backup.tar.gz' && scp -O -i ~/.ssh/bifrost_ed25519 root@$ip:/tmp/backup.tar.gz ~/router-backups/backup-$ip.tar.gz; done
+```
+
+## How it works
+
+```
+bifrost.conf.example      every setting, in the order you fill them in
+deploy.sh                 the one command you run on the PC (./deploy.sh for help)
+router/
+  setup/                  main router + dumb APs: network, wireless, dhcp, firewall
+  addon-wifi-watch/       the Telegram bot (own README)
+  addon-pi-gateway/       the router side of the Pi: usb0, static lease, port forward
+pi/                       the Pi itself: setup.sh (own README)
+```
+
+- **Each device only gets its own part of `bifrost.conf`.** `deploy.sh` writes
+  a small config for each one into a temporary copy on the PC, deleted when it
+  exits. The Telegram token never reaches the APs, for example, and the router
+  password never reaches the Pi.
+- **No password prompts.** `deploy.sh` logs in with its own SSH key
+  (`~/.ssh/bifrost_ed25519`, created on first run). The first time it meets a
+  device, it installs that key using `ROOT_PASSWORD` or `PI_PASSWORD`. That's
+  silent with `sshpass`, and asks once without it. "Keep settings" keeps the
+  key across flashes, and on the Pi `sudo` is answered from `PI_PASSWORD` too.
+- **Separate pieces.** `router/setup/` never references an addon, and the
+  addons never touch what it owns, so each one runs on its own, in any order.
+- **Host keys aren't pinned.** Every flash gives a router a new SSH host key,
+  so pinning would break every run. `deploy.sh` only talks to your own devices
+  on your LAN.
 
 ## License
 

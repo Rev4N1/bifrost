@@ -2,36 +2,34 @@
 
 A WireGuard endpoint that plugs into the main router's USB port and shows up
 there as `usb0`, bridged into the LAN. No Wi-Fi, no extra cables, no power
-supply. Everything on the Pi is done by `setup.sh`, which `deploy.sh` copies
-over with the Pi part of your `bifrost.conf`, runs, and deletes. Every step
-is safe to re-run.
+supply. Everything on the Pi is done by `setup.sh`: `deploy.sh` copies it over
+with the Pi's part of `bifrost.conf`, runs it, and deletes both. Every step is
+safe to re-run.
 
 ## First time (about 20 minutes)
 
-In `bifrost.conf`, fill in the Pi part: `PI_USER` and `PI_PASSWORD` (the user
-you create in step 1), your DuckDNS subdomain and token, and optionally the LAN
-services VPN clients may reach (`VPN_LAN_ACCESS`). With the password there,
-`deploy.sh` installs its own SSH key on the Pi once and answers `sudo`, so it
-never asks. Install `sshpass` (`sudo dnf install sshpass`) for that first
-login to be silent too.
+Before you start: the routers are set up (`./deploy.sh routers`), and part 6 of
+`bifrost.conf` is filled in. That means `PI_USER` and `PI_PASSWORD` (the user
+you'll create in step 1), your DuckDNS subdomain and token, and optionally
+`VPN_LAN_ACCESS`.
 
-1. **Flash** with Raspberry Pi Imager 2.x: *Raspberry Pi Zero 2 W* →
+1. **Flash the card** with Raspberry Pi Imager 2.x: *Raspberry Pi Zero 2 W* →
    *Raspberry Pi OS Lite (64-bit)* (Trixie). In Customisation, set the
-   hostname, a user and password, and **enable SSH**. Leave Wi-Fi
-   unconfigured.
+   hostname, the user and password from `bifrost.conf`, and **enable SSH**.
+   Leave Wi-Fi unconfigured.
 
-2. **Turn on USB-Ethernet mode.** With the card still in the PC:
+2. **Turn on USB-Ethernet mode.** With the card still in the PC, and opened in
+   your file manager so it's mounted:
 
    ```bash
    ./deploy.sh sdcard
    ```
 
-   This adds `enable_usb_gadget: true` under `rpi:` in the card's `user-data`.
-   Without it, the Pi's USB port only takes power.
+   Without this, the Pi's USB port only takes power.
 
 3. **Boot it on your PC.** Use a cable from the Pi's **USB** port (the inner
-   one, not `PWR`) to the PC, and wait 2–3 minutes. The Pi now serves the PC an
-   address and answers at `10.12.194.1`. Fedora needs nothing; Windows needs the
+   one, not `PWR`) to the PC, and wait 2–3 minutes. Linux needs nothing;
+   Windows needs the
    [Raspberry Pi RNDIS driver](https://github.com/raspberrypi/rpi-usb-gadget)
    once.
 
@@ -42,71 +40,78 @@ login to be silent too.
    ./deploy.sh pi-gateway --usb
    ```
 
-   The first command makes `usb0` a plain DHCP client and pins its MACs. The
-   second records those MACs and sets up the router: USB-Ethernet drivers,
-   `usb0` in the LAN bridge, a static lease, and the WireGuard port forward.
+   The first command makes the Pi a plain network client and pins its MACs.
+   The second records those MACs in `bifrost.conf` and sets up the router:
+   USB-Ethernet drivers, `usb0` in the LAN bridge, a static lease, and the
+   WireGuard port forward.
 
-5. **Move it.** Shut it down, then move the cable to the router's USB port:
+5. **Move it to the router:**
 
    ```bash
-   ssh -t -i ~/.ssh/bifrost_ed25519 <PI_USER>@10.12.194.1 sudo poweroff
+   ./deploy.sh pi --usb poweroff
    ```
 
-6. **Everything else:**
+   Wait a few seconds, then move the cable from the PC to the router's USB
+   port.
+
+6. **Set up everything else:**
 
    ```bash
    ./deploy.sh pi
    ```
 
    It updates the Pi, strips it down, and sets up DuckDNS, WireGuard and the
-   firewall. When the firewall changes, it asks you to confirm a fresh SSH
-   login within 2 minutes; without a "yes", the previous rules come back by
+   firewall. When the firewall rules change, it asks you to open a second
+   terminal, check that `ssh <PI_USER>@<PI_IP>` still logs in, and type `yes`.
+   Without a "yes" within 2 minutes, the previous rules come back by
    themselves. It reboots at the end if needed.
 
-7. **Add clients:**
+7. **Add your devices:**
 
    ```bash
-   ./deploy.sh pi client add phone       # next free IP
-   ./deploy.sh pi client add laptop 10.7.0.9
+   ./deploy.sh pi client add phone            # gets the next free IP
+   ./deploy.sh pi client add laptop 10.7.0.9  # or a chosen one
    ./deploy.sh pi client list
    ./deploy.sh pi client revoke phone
    ```
 
-   `add` prints a QR code for the phone app. It also saves `~/wg-<name>.conf`
-   on your PC, which contains the private key: import it, then delete it. On
-   Fedora: `sudo nmcli connection import type wireguard file ~/wg-<name>.conf`.
+   `add` prints a QR code for the WireGuard phone app. It also saves
+   `~/wg-<name>.conf` on the PC, for computers:
+   `sudo nmcli connection import type wireguard file ~/wg-<name>.conf` on
+   Fedora, or "Import tunnel(s) from file" in the WireGuard app. That file
+   contains the device's private key, so delete it after importing.
 
-**Coming from the old step-by-step guide?** Fill in the Pi part of
-`bifrost.conf`, then run `./deploy.sh pi network`, `./deploy.sh pi-gateway` and
-`./deploy.sh pi`. Existing keys, peers, pinned MACs and the DuckDNS token are
-kept.
+## Later
+
+- **After editing `bifrost.conf`,** for example `VPN_LAN_ACCESS`, run
+  `./deploy.sh pi` again. Only what differs changes.
+- **After a router flash,** nothing to do here; `./deploy.sh routers` restores
+  the router side.
+- **Reflashing the SD card:** do steps 1–6 again. `bifrost.conf` already holds
+  the old MACs, so the router's lease still matches. Re-add your devices
+  (step 7), since the server keys are new.
 
 ## What `setup.sh` does
 
 | Step | |
 |---|---|
-| `network` | Keeps `rpi-usb-gadget`'s auto-switcher enabled: it's what brings `usb0` up at boot. On a router the switcher picks the "shared" profile, which as shipped would run an authoritative DHCP server on your LAN, so that profile becomes a plain DHCP client with IPv6 link-local. Also pins the `g_ether` MACs, which are otherwise random every boot. |
-| `system` | Updates, with automatic security updates. Logs and swap in RAM only, and log2ram removed (Trixie has no rsyslog). Bluetooth, Wi-Fi, LED, display driver, audio and idle consoles off; GPU memory at its minimum. |
-| `duckdns` | Updates `<subdomain>.duckdns.org` every 5 minutes, treating `KO` as a failure. |
-| `wireguard` | Creates the server once. It never regenerates keys, so a re-run is a no-op. |
-| `firewall` | nftables, generated from `bifrost.conf`. LAN to Pi, WireGuard in, and VPN to internet are allowed. VPN to the LAN only reaches the services in `VPN_LAN_ACCESS`. The Pi can never answer DHCP on the LAN. Rules for other services go in `/etc/nftables.d/*.nft`. |
+| `network` | Pins the USB MACs (random on every boot otherwise). Makes `usb0` a DHCP client with IPv6 link-local. Keeps `rpi-usb-gadget`'s auto-switcher **enabled**, since it's what brings `usb0` up at boot. It picks the "shared" profile, which as shipped would be a DHCP server on your LAN, so that profile is turned into a client. |
+| `system` | Updates, with automatic security updates from then on. Logs and swap in RAM only, so the SD card barely gets written. Bluetooth, Wi-Fi, LED, display driver, audio and idle consoles off; GPU memory at its minimum. |
+| `duckdns` | Updates `<subdomain>.duckdns.org` every 5 minutes. |
+| `wireguard` | Creates the server the first time. It never touches existing keys or peers. |
+| `firewall` | Allowed: LAN to Pi, WireGuard in, VPN to internet, and VPN to the services in `VPN_LAN_ACCESS`; nothing else on the LAN. The Pi can never act as a DHCP server. Rules for other services on the Pi go in `/etc/nftables.d/*.nft`. |
 
-Run one with `./deploy.sh pi <step>`.
+`./deploy.sh pi` runs them all; `./deploy.sh pi <step>` runs one.
 
-## Re-running, reflashing, recovery
+## Troubleshooting
 
-- **Re-run** step 6 any time, for example after editing `bifrost.conf`. Only what
-  differs changes.
-- **Reflashing the SD card:** `bifrost.conf` already holds the old `PI_MAC` and
-  `HOST_MAC` (`deploy.sh pi-gateway` records them there). Step 4's `network`
-  reuses them, so the router's lease still matches. You also need to re-add
-  your WireGuard clients, since the server keys are new.
-- **Locked out:** plug the Pi into your PC and run
-  `ssh <PI_USER>@pi-zero-2w.local`. The firewall keeps IPv6 link-local SSH and
-  mDNS open for exactly this.
-- **The Pi boots but never brings its USB link up** (the router shows `usb0`
-  as `down`): the `rpi-usb-gadget-ics` service is disabled. Put the SD card in
-  a Linux PC and re-enable it on the card:
+- **Locked out over the network:** plug the Pi into your PC and
+  `ssh <PI_USER>@pi-zero-2w.local`. The firewall keeps that path open on
+  purpose.
+- **The Pi boots but its USB link never comes up** (the router shows `usb0`
+  as `down`, with the Pi's LED off you can't tell otherwise): the
+  `rpi-usb-gadget-ics` service got disabled. Put the SD card in a Linux PC,
+  open it in the file manager, and re-enable it on the card:
 
   ```bash
   root=$(findmnt -nro TARGET --source LABEL=rootfs | head -n1) && sudo ln -sfn /usr/lib/systemd/system/rpi-usb-gadget-ics.service "$root/etc/systemd/system/multi-user.target.wants/rpi-usb-gadget-ics.service" && sync
@@ -114,10 +119,11 @@ Run one with `./deploy.sh pi <step>`.
 
 ## Windows
 
-`deploy.sh` runs in Git Bash. The exception is step 2, which needs Linux. By
-hand: open the `bootfs` drive and open `user-data` in Notepad. If it has an
-`rpi:` line, add `enable_usb_gadget: true` under it, indented like the lines
-below it. Otherwise add these two lines at the end (spaces, not tabs):
+`deploy.sh` runs in Git Bash, except step 2, which needs Linux. To do step 2
+by hand, open the card's `bootfs` drive and open `user-data` in Notepad:
+- If it has an `rpi:` line, add `enable_usb_gadget: true` under it, indented
+  like the lines below it.
+- Otherwise, add these two lines at the end, with spaces, not tabs:
 
 ```yaml
 rpi:

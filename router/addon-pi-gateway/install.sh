@@ -2,7 +2,7 @@
 # ========================================================
 # addon-pi-gateway installer - the router side of the Pi
 # WireGuard gateway (pi/README.md). Runs ON the main router;
-# from the PC:  ./deploy.sh pi-gateway [<user>@<pi>]
+# from the PC:  ./deploy.sh pi-gateway [--usb]
 #
 # What it owns on the router, and nothing else:
 #   - USB-ethernet drivers so the Pi shows up as $PI_PORT

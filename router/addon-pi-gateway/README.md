@@ -21,10 +21,10 @@ replaced, so there's exactly one of each.
 ./deploy.sh pi-gateway          # after that, e.g. after every router flash
 ```
 
-`./deploy.sh routers` runs it too, once `PI_MAC` is set. After a
+`./deploy.sh routers` runs it too, once `PI_MAC` is set (part 6 of `bifrost.conf`). After a
 deploy, the installer stays in `/tmp` on the router until its next reboot:
 
 ```bash
-ssh root@192.168.1.1 sh /tmp/addon-pi-gateway/install.sh --check      # drivers, bridge, lease, forward, Pi ping, WAN not CGNAT
-ssh root@192.168.1.1 sh /tmp/addon-pi-gateway/install.sh --uninstall  # remove lease, forward, bridge port (drivers stay)
+ssh -i ~/.ssh/bifrost_ed25519 root@192.168.1.1 sh /tmp/addon-pi-gateway/install.sh --check      # drivers, bridge, lease, forward, Pi ping, WAN not CGNAT
+ssh -i ~/.ssh/bifrost_ed25519 root@192.168.1.1 sh /tmp/addon-pi-gateway/install.sh --uninstall  # remove lease, forward, bridge port (drivers stay)
 ```

@@ -10,6 +10,7 @@
 #   setup.sh                    everything, network included (on the router)
 #   setup.sh system|duckdns|wireguard|firewall    one step
 #   setup.sh client add NAME [IP] | revoke NAME | list
+#   setup.sh poweroff           shut down (before moving the cable)
 #
 # Every step converges: re-running it changes only what
 # differs, and keeps keys, peers and pinned MACs.
@@ -403,6 +404,7 @@ case "${1:-all}" in
     duckdns)  phase_duckdns ;;
     wireguard) phase_wireguard ;;
     firewall) phase_firewall ;;
+    poweroff) hdr "Shutting down - wait for the activity to stop, then unplug"; systemctl poweroff; exit 0 ;;
     all)
         phase_network
         phase_system
@@ -419,7 +421,7 @@ case "${1:-all}" in
         esac
         exit 0
         ;;
-    *) die "usage: setup.sh [network|system|duckdns|wireguard|firewall|all] | client ..." ;;
+    *) die "usage: setup.sh [network|system|duckdns|wireguard|firewall|all|poweroff] | client ..." ;;
 esac
 
 if [ "$NEED_REBOOT" = 1 ]; then
