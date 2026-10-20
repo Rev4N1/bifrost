@@ -79,7 +79,7 @@ token are kept.
 | Step | |
 |---|---|
 | `network` | Turns off `rpi-usb-gadget`'s auto-switcher. It only recognizes a PC's connection sharing, so on a router it would fall back to running an authoritative DHCP server on your LAN. Makes `usb0` a DHCP client with IPv6 link-local, and pins the `g_ether` MACs, which are otherwise random every boot. |
-| `system` | Updates, with automatic security updates. Logs and swap in RAM only, and log2ram removed (Trixie has no rsyslog). Bluetooth, Wi-Fi, LED, display driver, audio and idle consoles off; GPU memory at its minimum. CPU governor `performance`. |
+| `system` | Updates, with automatic security updates. Logs and swap in RAM only, and log2ram removed (Trixie has no rsyslog). Bluetooth, Wi-Fi, LED, display driver, audio and idle consoles off; GPU memory at its minimum. |
 | `duckdns` | Updates `<subdomain>.duckdns.org` every 5 minutes, treating `KO` as a failure. |
 | `wireguard` | Creates the server once. It never regenerates keys, so a re-run is a no-op. |
 | `firewall` | nftables, generated from `bifrost.conf`. LAN to Pi, WireGuard in, and VPN to internet are allowed. VPN to the LAN only reaches the services in `VPN_LAN_ACCESS`. The Pi can never answer DHCP on the LAN. Rules for other services go in `/etc/nftables.d/*.nft`. |

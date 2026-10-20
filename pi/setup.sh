@@ -124,23 +124,6 @@ phase_system() {
     fi
     [ "$(md5sum < "$CFG")" = "$before" ] || NEED_REBOOT=1
     ok "Bluetooth, Wi-Fi, LED, display, audio, consoles off"
-
-    hdr "Performance"
-    # Hold the CPU at full clock: lower WireGuard latency, no ramp-up.
-    cat > /etc/systemd/system/cpu-performance.service <<'UNIT'
-[Unit]
-Description=CPU frequency governor: performance
-
-[Service]
-Type=oneshot
-ExecStart=/bin/sh -c 'for g in /sys/devices/system/cpu/cpufreq/policy*/scaling_governor; do echo performance > "$g"; done'
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-    systemctl daemon-reload
-    systemctl enable --now cpu-performance.service >/dev/null 2>&1
-    ok "CPU governor: performance"
 }
 
 # ---- duckdns: keep <subdomain>.duckdns.org pointing home -----------

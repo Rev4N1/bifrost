@@ -10,8 +10,8 @@ piece, and every piece is safe to re-run after a flash.
   power, hardware NAT offload, packet steering, and optional UPnP (`UPNP`),
   reinstalled after every flash.
 - **Pi:** a WireGuard endpoint on the main router's USB port, locked down with
-  nftables, kept reachable by DuckDNS, and stripped down for performance and
-  SD-card life.
+  nftables, kept reachable by DuckDNS, and stripped down to what it uses, for
+  free RAM and SD-card life.
 - **Addons:** a Telegram home/away notifier, and the router side of the Pi.
 
 ```

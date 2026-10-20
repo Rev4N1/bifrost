@@ -34,10 +34,11 @@ DNS_LIST="9.9.9.11 149.112.112.11"   # upstream resolvers
 DHCP_DNS_OPTION=""          # DNS handed to clients; empty = the router. e.g. "6,192.168.1.1,9.9.9.9"
 UPNP="0"                    # 1 = UPnP/NAT-PMP on (lets consoles/apps open ports), 0 = off
 
-# Dumb APs: "hostname,ip,ch24,ch5", space separated. Channels must not
-# overlap the main router or each other. At 80 MHz: 36 = 36-48,
-# 52 = 52-64 (DFS), 100 = 100-112 (DFS). 2.4 GHz: 1, 6, 11.
-APS="ap1,192.168.1.2,6,100 ap2,192.168.1.3,11,52"
+# Dumb APs: "hostname,ip,ch24,ch5", space separated. 2.4 GHz: use 1, 6,
+# 11. 5 GHz at 80 MHz: 36 = 36-48 (no DFS), 52 = 52-64 (DFS, but most
+# devices support it). Avoid 100+: many phones and IoT devices can't see
+# it. APs that can't hear each other can share a channel.
+APS="ap1,192.168.1.2,6,52 ap2,192.168.1.3,11,52"
 
 # Every router
 ROOT_PASSWORD="CHANGE_ME"
