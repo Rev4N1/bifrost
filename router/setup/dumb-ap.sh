@@ -2,7 +2,7 @@
 # ========================================================
 # Dumb AP setup for OpenWrt 25.12: bridge only, no DHCP,
 # DNS or firewall. Its IP and channels come from the APS
-# list in network.conf.
+# list in bifrost.conf (as network.conf, written by deploy.sh).
 #
 #   ./deploy.sh ap <hostname>  (from the PC; or, on the AP:)
 #   sh /tmp/setup/dumb-ap.sh <hostname>

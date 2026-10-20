@@ -14,13 +14,13 @@ piece, and every piece is safe to re-run after a flash.
 - **Addons:** a Telegram home/away notifier, and the router side of the Pi.
 
 ```
+bifrost.conf.example      every setting and secret, in one file (copy to bifrost.conf)
 deploy.sh                 the one command you run on the PC
 router/
   setup/                  main router + dumb APs: network, wireless, dhcp, firewall
-    network.conf.example    the whole router layout + secrets
   addon-wifi-watch/       Telegram home/away notifier (optional, own README)
   addon-pi-gateway/       router side of the Pi: usb0, static lease, port forward
-pi/                       the Pi: setup.sh + pi.conf.example (own README)
+pi/                       the Pi: setup.sh (own README)
 ```
 
 `router/setup/` never references an addon, and the addons never touch what it
@@ -28,19 +28,22 @@ owns.
 
 ## Configure
 
-Each piece reads one git-ignored config, created from its committed template.
-Fill in every `CHANGE_ME`; nothing runs while one is left.
+Everything lives in one git-ignored file. It's also the only file to copy
+when you move to another PC.
 
 ```bash
-cp -n router/setup/network.conf.example router/setup/network.conf
-cp -n router/addon-wifi-watch/wifi-watch.conf.example router/addon-wifi-watch/wifi-watch.conf
-cp -n pi/pi.conf.example pi/pi.conf
+cp -n bifrost.conf.example bifrost.conf
 ```
 
-`network.conf` describes your layout: SSID, the main router's WAN port and
-channels, and one `hostname,ip,ch24,ch5` entry per dumb AP. Nothing about the
-layout is hard-coded. `pi-gateway.conf` fills itself (see
-[pi/README.md](pi/README.md)).
+Fill in every `CHANGE_ME` in the router part. The bot and the Pi are optional:
+each stays off while its key setting (`BOT_TOKEN`, `PI_MAC`) is empty. Nothing
+about the layout is hard-coded: `APS` lists one `hostname,ip,ch24,ch5` entry
+per dumb AP. `PI_MAC` fills itself (see [pi/README.md](pi/README.md)).
+
+`deploy.sh` hands each device only its own part of the file, as a small
+config written into a temporary copy on the PC (deleted when it exits). The
+Telegram token never reaches the APs, for example, and the router password
+never reaches the Pi.
 
 ## Deploy
 
@@ -49,7 +52,7 @@ layout is hard-coded. `pi-gateway.conf` fills itself (see
 ```
 
 That's the whole "after every router flash" routine: the main router, then each
-AP, waiting for each reboot, then the addons whose config exists. Each step on
+AP, waiting for each reboot, then the addons in use. Each step on
 its own:
 
 ```bash

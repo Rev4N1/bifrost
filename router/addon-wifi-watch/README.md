@@ -2,7 +2,7 @@
 
 Telegram home/away notifier: tells a chat when someone's phone joins or leaves
 the network, watching the main router and every dumb AP. `AP_HOSTS` in
-`wifi-watch.conf` lists the same AP addresses as `APS` in `network.conf`.
+Its settings are the bot part of `bifrost.conf`; the APs it watches come from `APS`.
 
 **This is an addon.** It never touches wireless, network, dhcp or firewall
 config. `../setup/` owns those, and nothing here duplicates or contradicts
@@ -12,7 +12,7 @@ associated.
 
 | File | Installed to | What it is |
 |---|---|---|
-| `wifi-watch.conf` | `/etc/wifi-watch.conf` | **All settings**: bot token, chat, people, APs, tuning. Git-ignored; create it from `wifi-watch.conf.example` |
+| `wifi-watch.conf` | `/etc/wifi-watch.conf` | Its settings, written by `deploy.sh` from `bifrost.conf` |
 | `install.sh` | (run from the copy) | Installer / uninstaller / health check |
 | `wifi-watch.sh` | `/usr/bin/` | The notifier daemon |
 | `wifi-where.sh` | `/usr/bin/` | Read-only diagnostic |
@@ -55,16 +55,16 @@ rounds that re-query the APs. A roam is seconds wide.
 ./deploy.sh wifi-watch
 ```
 
-`./deploy.sh routers` runs it too, once `wifi-watch.conf` exists. It's
+`./deploy.sh routers` runs it too, once `BOT_TOKEN` is set. It's
 idempotent, so re-run it after every flash or after editing anything here,
-`wifi-watch.conf` included. Each run:
+`bifrost.conf` included. Each run:
 
 - installs `curl`, `arping`, `timeout` and an SSH client if missing (a flash
   removes them)
 - reuses or creates `/root/.ssh/wifi-watch` and authorizes it on each AP that
   doesn't already accept it
-- copies the files, overwriting `/etc/wifi-watch.conf` with this directory's
-  copy (the copy here is the source of truth)
+- copies the files, overwriting `/etc/wifi-watch.conf` with the one
+  `deploy.sh` wrote from `bifrost.conf` (the source of truth)
 - lists the config and key in `/etc/sysupgrade.conf`, so a flash with "keep
   settings" doesn't force re-authorizing the APs
 - restarts the service and runs a self-test
@@ -102,7 +102,7 @@ Log lines worth knowing:
 
 ## Configuration
 
-Everything is in `wifi-watch.conf`. Run `./deploy.sh wifi-watch` to apply.
+Everything is in the bot part of `bifrost.conf`. Run `./deploy.sh wifi-watch` to apply.
 
 People are `hostname-substring=name` pairs:
 

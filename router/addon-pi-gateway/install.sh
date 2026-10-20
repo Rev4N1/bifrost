@@ -11,7 +11,7 @@
 #   - the WAN -> Pi WireGuard port forward (section pigw_wireguard)
 #
 # Idempotent: re-run after every flash or after editing
-# pi-gateway.conf. Any other lease for the same MAC/IP, or other
+# bifrost.conf (deploy.sh writes pi-gateway.conf from it). Any other lease for the same MAC/IP, or other
 # port forward of the same WAN port (e.g. one made by hand in
 # LuCI), is replaced so there is exactly one of each.
 #
@@ -32,9 +32,9 @@ warn() { printf '  [warn] %s\n' "$*"; }
 fail() { printf '  [FAIL] %s\n' "$*"; RC=1; }
 hdr()  { printf '\n== %s\n' "$*"; }
 
-[ -r "$CONF" ] || { echo "cannot read $CONF (cp pi-gateway.conf.example pi-gateway.conf, then fill it in)"; exit 1; }
+[ -r "$CONF" ] || { echo "cannot read $CONF - run this through ./deploy.sh pi-gateway"; exit 1; }
 . "$CONF"
-if [ "$1" != "--uninstall" ] && grep -q '"CHANGE_ME"' "$CONF"; then
+if [ "$1" != "--uninstall" ] && grep -qE "=[\"']CHANGE_ME[\"']" "$CONF"; then
     echo "$CONF still has CHANGE_ME placeholders"
     exit 1
 fi

@@ -17,11 +17,11 @@ replaced, so there's exactly one of each.
 ## Install
 
 ```bash
-./deploy.sh pi-gateway <user>@<pi address>   # first time: reads the Pi's MAC into pi-gateway.conf
+./deploy.sh pi-gateway <user>@<pi address>   # first time: records the Pi's MAC in bifrost.conf
 ./deploy.sh pi-gateway                       # after that, e.g. after every router flash
 ```
 
-`./deploy.sh routers` runs it too, once `pi-gateway.conf` exists. After a
+`./deploy.sh routers` runs it too, once `PI_MAC` is set. After a
 deploy, the installer stays in `/tmp` on the router until its next reboot:
 
 ```bash

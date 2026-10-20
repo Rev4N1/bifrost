@@ -3,13 +3,13 @@
 A WireGuard endpoint that plugs into the main router's USB port and shows up
 there as `usb0`, bridged into the LAN. No Wi-Fi, no extra cables, no power
 supply. Everything on the Pi is done by `setup.sh`, which `deploy.sh` copies
-over with your `pi.conf`, runs, and deletes. Every step is safe to re-run.
+over with the Pi part of your `bifrost.conf`, runs, and deletes. Every step
+is safe to re-run.
 
 ## First time (about 20 minutes)
 
-You need `pi/pi.conf` (`cp -n pi/pi.conf.example pi/pi.conf`), with your
-DuckDNS subdomain and token and, optionally, the LAN services VPN clients may
-reach.
+In `bifrost.conf`, fill in the Pi part: your DuckDNS subdomain and token
+and, optionally, the LAN services VPN clients may reach (`VPN_LAN_ACCESS`).
 
 1. **Flash** with Raspberry Pi Imager 2.x: *Raspberry Pi Zero 2 W* →
    *Raspberry Pi OS Lite (64-bit)* (Trixie). In Customisation, set the
@@ -69,7 +69,8 @@ reach.
    on your PC, which contains the private key: import it, then delete it. On
    Fedora: `sudo nmcli connection import type wireguard file ~/wg-<name>.conf`.
 
-**Coming from the old step-by-step guide?** Fill in `pi.conf`, then run steps 4
+**Coming from the old step-by-step guide?** Fill in the Pi part of
+`bifrost.conf`, then run steps 4
 and 6 against `192.168.1.5`. Existing keys, peers, pinned MACs and the DuckDNS
 token are kept.
 
@@ -81,15 +82,15 @@ token are kept.
 | `system` | Updates, with automatic security updates. Logs and swap in RAM only, and log2ram removed (Trixie has no rsyslog). Bluetooth, Wi-Fi, LED, display driver, audio and idle consoles off; GPU memory at its minimum. CPU governor `performance`. |
 | `duckdns` | Updates `<subdomain>.duckdns.org` every 5 minutes, treating `KO` as a failure. |
 | `wireguard` | Creates the server once. It never regenerates keys, so a re-run is a no-op. |
-| `firewall` | nftables, generated from `pi.conf`. LAN to Pi, WireGuard in, and VPN to internet are allowed. VPN to the LAN only reaches the services in `VPN_LAN_ACCESS`. The Pi can never answer DHCP on the LAN. Rules for other services go in `/etc/nftables.d/*.nft`. |
+| `firewall` | nftables, generated from `bifrost.conf`. LAN to Pi, WireGuard in, and VPN to internet are allowed. VPN to the LAN only reaches the services in `VPN_LAN_ACCESS`. The Pi can never answer DHCP on the LAN. Rules for other services go in `/etc/nftables.d/*.nft`. |
 
 Run one with `./deploy.sh pi <user>@192.168.1.5 <step>`.
 
 ## Re-running, reflashing, recovery
 
-- **Re-run** step 6 any time, for example after editing `pi.conf`. Only what
+- **Re-run** step 6 any time, for example after editing `bifrost.conf`. Only what
   differs changes.
-- **Reflashing the SD card:** `pi.conf` already holds the old `PI_MAC` and
+- **Reflashing the SD card:** `bifrost.conf` already holds the old `PI_MAC` and
   `HOST_MAC` (`deploy.sh pi-gateway` records them there). Step 4's `network`
   reuses them, so the router's lease still matches. You also need to re-add
   your WireGuard clients, since the server keys are new.

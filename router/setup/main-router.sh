@@ -1,7 +1,8 @@
 #!/bin/ash
 # ========================================================
 # Main router setup for OpenWrt 25.12: PPPoE gateway, DHCP,
-# DNS, Wi-Fi. Every value comes from network.conf.
+# DNS, Wi-Fi. Every value comes from bifrost.conf (as
+# network.conf, written by deploy.sh).
 #
 #   ./deploy.sh main          (from the PC; or, on the router:)
 #   sh /tmp/setup/main-router.sh

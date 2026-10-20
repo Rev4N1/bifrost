@@ -19,9 +19,10 @@ warn() { printf '  [warn] %s\n' "$*"; }
 hdr()  { printf '\n== %s\n' "$*"; }
 die()  { printf '  [FAIL] %s\n' "$*"; exit 1; }
 
-[ -f "$SETUP_DIR/network.conf" ] || die "network.conf not found next to $0 (cp network.conf.example network.conf, then fill it in)"
+# network.conf is written by deploy.sh from bifrost.conf on the PC.
+[ -f "$SETUP_DIR/network.conf" ] || die "network.conf not found next to $0 - run this through ./deploy.sh"
 . "$SETUP_DIR/network.conf"
-grep -q '"CHANGE_ME"' "$SETUP_DIR/network.conf" && die "network.conf still has CHANGE_ME placeholders"
+grep -qE "=[\"']CHANGE_ME[\"']" "$SETUP_DIR/network.conf" && die "network.conf still has CHANGE_ME values (fix bifrost.conf)"
 
 [ -f /etc/openwrt_release ] || die "this does not look like OpenWrt"
 

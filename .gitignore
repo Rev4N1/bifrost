@@ -1,5 +1,2 @@
-# Real configs hold secrets; the *.example templates are committed instead
-router/setup/network.conf
-router/addon-wifi-watch/wifi-watch.conf
-router/addon-pi-gateway/pi-gateway.conf
-pi/pi.conf
+# Every setting and secret; bifrost.conf.example is the committed template
+bifrost.conf

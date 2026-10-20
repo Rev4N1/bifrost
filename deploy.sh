@@ -2,9 +2,9 @@
 # ========================================================
 # deploy.sh - the one command you run on the PC.
 # Linux (bash). On Windows it runs in Git Bash, except
-# "sdcard" (see pi/README.md).
+# "sdcard" (see pi/README.md). Settings: bifrost.conf.
 #
-#   ./deploy.sh routers               main router, every AP, then the addons
+#   ./deploy.sh routers               main router, every AP, then the addons in use
 #   ./deploy.sh main                  main router only
 #   ./deploy.sh ap <hostname> [--fresh]   one dumb AP (--fresh: still at factory 192.168.1.1)
 #   ./deploy.sh wifi-watch            Telegram addon
@@ -19,11 +19,18 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-NET=router/setup/network.conf
-GATEWAY_CONF=router/addon-pi-gateway/pi-gateway.conf
-WATCH_CONF=router/addon-wifi-watch/wifi-watch.conf
-PI_CONF=pi/pi.conf
+CONF=bifrost.conf
 FACTORY_IP=192.168.1.1
+
+# What each device gets from bifrost.conf. Everything else stays on the PC.
+NET_VARS="SSID WPA_PSK COUNTRY MOBILITY_DOMAIN BW24 BW5 TXPOWER_24 MAIN_HOSTNAME GW_IP NETMASK
+          WAN_DEVICE PPPOE_USER PPPOE_PASS MAIN_CH24 MAIN_CH5 DNS_LIST DHCP_DNS_OPTION APS
+          ROOT_PASSWORD ZONENAME TIMEZONE NTP_SERVER"
+WATCH_VARS="BOT_TOKEN CHAT_ID PEOPLE PEOPLE_MAC AP_HOSTS POLL_INTERVAL MISSES_TO_LEAVE
+            CONFIRM_ROUNDS CONFIRM_GAP ARPING_TRIES INITIAL_SETTLE AP_FAIL_GRACE"
+GATEWAY_VARS="PI_NAME PI_MAC PI_IP PI_PORT WG_PORT"
+PI_VARS="PI_IP LAN_SUBNET WG_PORT VPN_SUBNET CLIENT_DNS DUCKDNS_DOMAIN DUCKDNS_TOKEN
+         VPN_LAN_ACCESS PI_MAC HOST_MAC"
 
 say() { printf '\n>>> %s\n' "$*"; }
 die() { printf 'deploy: %s\n' "$*" >&2; exit 1; }
@@ -39,11 +46,54 @@ fi
 SSH_ROUTER=("${SSH_COMMON[@]}" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
 SSH_PI=("${SSH_COMMON[@]}" -o StrictHostKeyChecking=accept-new)
 
-need_conf() {
-    [ -f "$1" ] || die "$1 is missing: cp $1.example $1, then fill it in"
-    ! grep -q '"CHANGE_ME"' "$1" || die "$1 still has CHANGE_ME values"
+# ---- config ---------------------------------------------------------
+
+usage() { sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+case "${1:-}" in
+    routers|main|ap|wifi-watch|pi-gateway|pi) ;;
+    sdcard) ;;
+    *) usage ;;
+esac
+
+if [ "$1" != sdcard ]; then
+    [ -f "$CONF" ] || die "$CONF is missing: cp -n $CONF.example $CONF, then fill it in"
+    set +u; . "./$CONF"; set -u
+    : "${APS:=}" "${BOT_TOKEN:=}" "${PI_MAC:=}" "${HOST_MAC:=}"
+    PI_PORT=usb0
+    AP_HOSTS=""
+    for _e in $APS; do _r=${_e#*,}; AP_HOSTS="${AP_HOSTS:+$AP_HOSTS }${_r%%,*}"; done
+fi
+
+# require VAR... - each must be set and not CHANGE_ME
+require() {
+    local v
+    for v in "$@"; do
+        [ -n "${!v:-}" ] && [ "${!v}" != CHANGE_ME ] || die "set $v in $CONF"
+    done
 }
-load_net() { need_conf "$NET"; set +u; . "$NET"; set -u; }
+
+# emit VAR... - shell assignments, single-quoted so any value survives ash
+emit() {
+    local v
+    for v in "$@"; do
+        printf "%s='%s'\n" "$v" "$(printf '%s' "${!v-}" | sed "s/'/'\\\\''/g")"
+    done
+}
+
+# stage <dir> <config file name> <vars> - a temp copy of dir with its
+# config written in, deleted when deploy.sh exits. Prints the copy's path.
+STAGE=$(mktemp -d)
+trap 'rm -rf "$STAGE"' EXIT
+stage() {
+    rm -rf "${STAGE:?}/${1##*/}"
+    cp -r "$1" "$STAGE/"
+    # shellcheck disable=SC2086
+    emit $3 > "$STAGE/${1##*/}/$2"
+    chmod 600 "$STAGE/${1##*/}/$2"
+    echo "$STAGE/${1##*/}"
+}
+
+# ---- ssh helpers ----------------------------------------------------
 
 port_open() { timeout 3 bash -c "</dev/tcp/$1/22" 2>/dev/null; }
 
@@ -72,15 +122,20 @@ ap_ip() {
     die "no AP named '$1' in APS (have: $(for e in $APS; do printf '%s ' "${e%%,*}"; done))"
 }
 
+# ---- targets --------------------------------------------------------
+
+require_net() { require SSID WPA_PSK COUNTRY ROOT_PASSWORD ZONENAME TIMEZONE GW_IP NETMASK; }
+
 cmd_main() {
-    load_net
+    require_net; require MAIN_HOSTNAME WAN_DEVICE PPPOE_USER PPPOE_PASS MAIN_CH24 MAIN_CH5
     say "main router $GW_IP"
-    router_run "$GW_IP" router/setup "sh /tmp/setup/main-router.sh" || true   # it reboots
+    router_run "$GW_IP" "$(stage router/setup network.conf "$NET_VARS")" \
+        "sh /tmp/setup/main-router.sh" || true   # it reboots
     wait_reboot "$GW_IP" "$GW_IP"
 }
 
 cmd_ap() {
-    load_net
+    require_net
     local name=${1:-} ip target
     [ -n "$name" ] || die "usage: deploy.sh ap <hostname> [--fresh]"
     ip=$(ap_ip "$name"); target=$ip
@@ -91,48 +146,45 @@ cmd_ap() {
         echo "    says it's waiting for internet, plug it into the main LAN."
     fi
     say "dumb AP $name ($ip)"
-    router_run "$target" router/setup "sh /tmp/setup/dumb-ap.sh $name" || true   # it reboots
+    router_run "$target" "$(stage router/setup network.conf "$NET_VARS")" \
+        "sh /tmp/setup/dumb-ap.sh $name" || true   # it reboots
     wait_reboot "$target" "$ip"
 }
 
 cmd_wifi_watch() {
-    load_net; need_conf "$WATCH_CONF"
+    require BOT_TOKEN CHAT_ID PEOPLE
     say "wifi-watch addon on $GW_IP"
-    router_run "$GW_IP" router/addon-wifi-watch "sh /tmp/addon-wifi-watch/install.sh"
+    router_run "$GW_IP" "$(stage router/addon-wifi-watch wifi-watch.conf "$WATCH_VARS")" \
+        "sh /tmp/addon-wifi-watch/install.sh"
 }
 
-# Record the Pi's pinned MACs in pi-gateway.conf (and pi.conf, so a
-# reflashed Pi can be given the same ones).
+# Record the Pi's pinned MACs in bifrost.conf (PI_MAC for the router's
+# lease, both for giving a reflashed Pi the same ones).
 record_pi_macs() {
-    local pinned pi_mac host_mac f
+    local pinned
     pinned=$(ssh "${SSH_PI[@]}" "$1" cat /etc/modprobe.d/usb-gadget.conf)
-    pi_mac=$(sed -n 's/.*dev_addr=\([^ ]*\).*/\1/p' <<<"$pinned")
-    host_mac=$(sed -n 's/.*host_addr=\([^ ]*\).*/\1/p' <<<"$pinned")
-    [ -n "$pi_mac" ] && [ -n "$host_mac" ] || die "no pinned MACs on the Pi - run: deploy.sh pi $1 network"
-    [ -f "$GATEWAY_CONF" ] || cp "$GATEWAY_CONF.example" "$GATEWAY_CONF"
-    [ -f "$PI_CONF" ] || cp "$PI_CONF.example" "$PI_CONF"
-    for f in "$GATEWAY_CONF" "$PI_CONF"; do
-        sed -i -e "s/^PI_MAC=\"[^\"]*\"/PI_MAC=\"$pi_mac\"/" \
-               -e "s/^HOST_MAC=\"[^\"]*\"/HOST_MAC=\"$host_mac\"/" "$f"
-    done
-    echo "    PI_MAC=$pi_mac HOST_MAC=$host_mac recorded"
+    PI_MAC=$(sed -n 's/.*dev_addr=\([^ ]*\).*/\1/p' <<<"$pinned")
+    HOST_MAC=$(sed -n 's/.*host_addr=\([^ ]*\).*/\1/p' <<<"$pinned")
+    [ -n "$PI_MAC" ] && [ -n "$HOST_MAC" ] || die "no pinned MACs on the Pi - run: deploy.sh pi $1 network"
+    sed -i -e "s/^PI_MAC=\"[^\"]*\"/PI_MAC=\"$PI_MAC\"/" \
+           -e "s/^HOST_MAC=\"[^\"]*\"/HOST_MAC=\"$HOST_MAC\"/" "$CONF"
+    echo "    PI_MAC=$PI_MAC HOST_MAC=$HOST_MAC recorded in $CONF"
 }
 
 cmd_pi_gateway() {
-    load_net
     [ -n "${1:-}" ] && { say "reading the Pi's MACs"; record_pi_macs "$1"; }
-    need_conf "$GATEWAY_CONF"
+    require PI_MAC PI_IP WG_PORT
     say "pi-gateway addon on $GW_IP"
-    router_run "$GW_IP" router/addon-pi-gateway "sh /tmp/addon-pi-gateway/install.sh"
+    router_run "$GW_IP" "$(stage router/addon-pi-gateway pi-gateway.conf "$GATEWAY_VARS")" \
+        "sh /tmp/addon-pi-gateway/install.sh"
 }
 
 cmd_routers() {
-    load_net
     local e
     cmd_main
     for e in $APS; do cmd_ap "${e%%,*}"; done
-    if [ -f "$WATCH_CONF" ]; then cmd_wifi_watch; else echo "(no $WATCH_CONF - skipping wifi-watch)"; fi
-    if [ -f "$GATEWAY_CONF" ]; then cmd_pi_gateway; else echo "(no $GATEWAY_CONF - skipping pi-gateway)"; fi
+    if [ -n "$BOT_TOKEN" ]; then cmd_wifi_watch; else echo "(BOT_TOKEN empty - skipping wifi-watch)"; fi
+    if [ -n "$PI_MAC" ]; then cmd_pi_gateway; else echo "(PI_MAC empty - skipping pi-gateway)"; fi
     say "all routers done"
 }
 
@@ -165,14 +217,14 @@ cmd_sdcard() {
     say "USB gadget mode on. Eject the card and boot the Pi from it."
 }
 
-# Run pi/setup.sh on the Pi. Script and pi.conf travel inside the SSH
-# command (one connection: one password, plus sudo) and are deleted after.
+# Run pi/setup.sh on the Pi. The script and its config travel inside the
+# SSH command (one connection: one password, plus sudo) and are deleted after.
 cmd_pi() {
     local target=${1:-}; shift || true
     [ -n "$target" ] || die "usage: deploy.sh pi user@host [step | client ...]"
-    [ -f "$PI_CONF" ] || die "$PI_CONF is missing: cp $PI_CONF.example $PI_CONF, then fill it in"
     local s c args
-    s=$(base64 -w0 pi/setup.sh); c=$(base64 -w0 "$PI_CONF")
+    # shellcheck disable=SC2086
+    s=$(base64 -w0 pi/setup.sh); c=$(emit $PI_VARS | base64 -w0)
     args=$(printf '%q ' "$@")
     say "pi/setup.sh ${*:-all} on $target"
     ssh -t "${SSH_PI[@]}" "$target" "
@@ -198,5 +250,4 @@ case "${1:-}" in
     pi-gateway) shift; cmd_pi_gateway "$@" ;;
     sdcard)     cmd_sdcard ;;
     pi)         shift; cmd_pi "$@" ;;
-    *)          sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

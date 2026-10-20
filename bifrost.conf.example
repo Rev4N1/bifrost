@@ -1,0 +1,76 @@
+# ========================================================
+# bifrost.conf - every setting and secret, in one file.
+# deploy.sh reads it and hands each device only what it needs.
+#
+#   cp -n bifrost.conf.example bifrost.conf
+#
+# bifrost.conf is git-ignored. Fill in every CHANGE_ME of the
+# parts you use; an optional part is skipped while its key
+# setting is empty.
+# ========================================================
+
+# ======== Routers (required) ========
+
+# Wi-Fi: identical on every router (roaming needs it)
+SSID="CHANGE_ME"
+WPA_PSK="CHANGE_ME"
+COUNTRY="CHANGE_ME"         # ISO 3166 code: legal channels/power (e.g. DE, FR, US)
+MOBILITY_DOMAIN="a1b2"      # 802.11r, any 4 hex digits
+BW24="20"                   # 2.4 GHz width (MHz)
+BW5="80"                    # 5 GHz width (MHz)
+TXPOWER_24="17"             # 2.4 GHz dBm; lower than 5 GHz so clients prefer 5 GHz. Empty = max
+
+# Main router
+MAIN_HOSTNAME="router-main"
+GW_IP="192.168.1.1"
+NETMASK="255.255.255.0"
+LAN_SUBNET="192.168.1.0/24"
+WAN_DEVICE="eth1"           # the WAN port's name in OpenWrt (uci show network | grep wan)
+PPPOE_USER="CHANGE_ME"
+PPPOE_PASS="CHANGE_ME"
+MAIN_CH24="1"
+MAIN_CH5="36"
+DNS_LIST="9.9.9.11 149.112.112.11"   # upstream resolvers
+DHCP_DNS_OPTION=""          # DNS handed to clients; empty = the router. e.g. "6,192.168.1.1,9.9.9.9"
+
+# Dumb APs: "hostname,ip,ch24,ch5", space separated. Channels must not
+# overlap the main router or each other. At 80 MHz: 36 = 36-48,
+# 52 = 52-64 (DFS), 100 = 100-112 (DFS). 2.4 GHz: 1, 6, 11.
+APS="ap1,192.168.1.2,6,100 ap2,192.168.1.3,11,52"
+
+# Every router
+ROOT_PASSWORD="CHANGE_ME"
+ZONENAME="CHANGE_ME"        # e.g. Europe/Berlin
+TIMEZONE="CHANGE_ME"        # POSIX TZ for it, e.g. CET-1CEST,M3.5.0,M10.5.0/3
+NTP_SERVER="pool.ntp.org"
+
+# ======== Telegram home/away bot (optional: empty BOT_TOKEN = off) ========
+
+BOT_TOKEN=""                # from @BotFather
+CHAT_ID=""                  # group or user chat id
+# People: "<DHCP hostname substring>=<name>", space separated (names: no spaces)
+PEOPLE=""                   # e.g. "Pixel-8=Alice iPhone-Bob=Bob"
+PEOPLE_MAC=""               # fallback for devices with no DHCP hostname: "aa:bb:cc:dd:ee:ff=Alice"
+# Tuning (see router/addon-wifi-watch/README.md)
+POLL_INTERVAL=30
+MISSES_TO_LEAVE=4
+CONFIRM_ROUNDS=3
+CONFIRM_GAP=5
+ARPING_TRIES=3
+INITIAL_SETTLE=45
+AP_FAIL_GRACE=10
+
+# ======== Pi WireGuard gateway (optional: empty PI_MAC = router side off) ========
+
+PI_NAME="pi-zero-2w"
+PI_IP="192.168.1.5"
+PI_MAC=""                   # filled in by: ./deploy.sh pi-gateway <user>@<pi>
+HOST_MAC=""                 # same; reused to give a reflashed Pi its old MACs
+WG_PORT="51820"
+VPN_SUBNET="10.7.0.0/24"    # the Pi is .1, clients from .2 up
+CLIENT_DNS="9.9.9.9, 1.1.1.1"
+DUCKDNS_DOMAIN=""           # subdomain only, without .duckdns.org
+DUCKDNS_TOKEN=""            # empty = keep whatever the Pi already has
+# LAN services VPN clients may reach (everything else on the LAN is
+# blocked): "ip:proto:port", space separated. Give those hosts static IPs.
+VPN_LAN_ACCESS=""           # e.g. "192.168.1.20:tcp:3389 192.168.1.30:tcp:22"

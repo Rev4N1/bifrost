@@ -11,7 +11,7 @@
 # which stations are associated.
 #
 # Idempotent: re-run it after every flash, or after editing
-# any file here (wifi-watch.conf included).
+# bifrost.conf (deploy.sh writes wifi-watch.conf from it).
 #
 #   install.sh              install / upgrade
 #   install.sh --check      diagnose an existing install
@@ -45,10 +45,10 @@ fi
 [ -r "$LIB" ] || { echo "cannot read $LIB"; exit 1; }
 . "$LIB"
 ww_load_conf 2>/dev/null || [ "$1" = "--uninstall" ] || {
-    echo "cannot read $WIFI_WATCH_CONF (cp wifi-watch.conf.example wifi-watch.conf, then fill it in)"
+    echo "cannot read $WIFI_WATCH_CONF - run this through ./deploy.sh wifi-watch"
     exit 1
 }
-if [ -z "$1" ] && grep -q '"CHANGE_ME"' "$WIFI_WATCH_CONF"; then
+if [ -z "$1" ] && grep -qE "=[\"']CHANGE_ME[\"']" "$WIFI_WATCH_CONF"; then
     echo "$WIFI_WATCH_CONF still has CHANGE_ME placeholders"
     exit 1
 fi
