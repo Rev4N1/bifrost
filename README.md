@@ -73,14 +73,22 @@ into the main LAN. Without internet it keeps `wpad-basic` (802.11r works,
 
 ## Requirements
 
-- **PC:** Linux with `bash`, `ssh` and `scp`. On Windows, `deploy.sh` runs in
-  Git Bash, except `sdcard` (see [pi/README.md](pi/README.md)).
+- **PC:** Linux with `bash`, `ssh` and `scp`; `sshpass` recommended
+  (`sudo dnf install sshpass`). On Windows, `deploy.sh` runs in Git Bash, except
+  `sdcard` (see [pi/README.md](pi/README.md)).
 - **Routers:** OpenWrt 25.12 (`apk`).
 - **Pi:** Raspberry Pi OS Lite (64-bit), Trixie, from 2025-10-20 or later.
 
-Routers get a new SSH host key on every flash, so `deploy.sh` doesn't pin their
-keys; it only talks to them on your LAN. On Linux it reuses one SSH connection
-per device, so you type each password once.
+**No password prompts.** `deploy.sh` logs in with its own SSH key
+(`~/.ssh/bifrost_ed25519`, created on first run). The first time it meets a
+device, it installs that key using the password from `bifrost.conf`
+(`ROOT_PASSWORD` for routers, `PI_PASSWORD` for the Pi). With `sshpass`
+installed that's silent; without it, that one login asks. "Keep settings" keeps
+the key on the routers across flashes, so after that nothing asks again. On the
+Pi, `sudo` is answered from `PI_PASSWORD` too.
+
+Routers get a new SSH host key on every flash, so `deploy.sh` doesn't pin host
+keys; it only talks to your own devices on your LAN.
 
 ## License
 

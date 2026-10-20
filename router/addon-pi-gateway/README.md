@@ -17,8 +17,8 @@ replaced, so there's exactly one of each.
 ## Install
 
 ```bash
-./deploy.sh pi-gateway <user>@<pi address>   # first time: records the Pi's MAC in bifrost.conf
-./deploy.sh pi-gateway                       # after that, e.g. after every router flash
+./deploy.sh pi-gateway --usb    # first time, Pi still on the PC: records its MAC in bifrost.conf
+./deploy.sh pi-gateway          # after that, e.g. after every router flash
 ```
 
 `./deploy.sh routers` runs it too, once `PI_MAC` is set. After a

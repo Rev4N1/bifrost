@@ -8,12 +8,13 @@
 #   ./deploy.sh main                  main router only
 #   ./deploy.sh ap <hostname> [--fresh]   one dumb AP (--fresh: still at factory 192.168.1.1)
 #   ./deploy.sh wifi-watch            Telegram addon
-#   ./deploy.sh pi-gateway [user@pi]  router side of the Pi (with user@pi: records its MACs first)
+#   ./deploy.sh pi-gateway [--usb]    router side of the Pi (records its MACs if needed)
 #
 #   ./deploy.sh sdcard                turn on USB gadget mode on a freshly flashed Pi card
-#   ./deploy.sh pi user@host [step]   run pi/setup.sh on the Pi (network|system|...|all)
-#   ./deploy.sh pi user@host client add NAME [IP] | revoke NAME | list
+#   ./deploy.sh pi [--usb] [step]     run pi/setup.sh on the Pi (network|system|...|all)
+#   ./deploy.sh pi client add NAME [IP] | revoke NAME | list
 #
+#   --usb: the Pi is plugged into this PC (first setup), not the router.
 # Every target is safe to re-run.
 # ========================================================
 set -euo pipefail
@@ -21,6 +22,8 @@ cd "$(dirname "$0")"
 
 CONF=bifrost.conf
 FACTORY_IP=192.168.1.1
+PI_USB_IP=10.12.194.1
+KEY="$HOME/.ssh/bifrost_ed25519"
 
 # What each device gets from bifrost.conf. Everything else stays on the PC.
 NET_VARS="SSID WPA_PSK COUNTRY MOBILITY_DOMAIN BW24 BW5 TXPOWER_24 MAIN_HOSTNAME GW_IP NETMASK
@@ -35,30 +38,18 @@ PI_VARS="PI_IP LAN_SUBNET WG_PORT VPN_SUBNET CLIENT_DNS DUCKDNS_DOMAIN DUCKDNS_T
 say() { printf '\n>>> %s\n' "$*"; }
 die() { printf 'deploy: %s\n' "$*" >&2; exit 1; }
 
-# Routers get a new host key on every flash, so their key isn't pinned
-# (LAN only). On Linux, one SSH connection per host is reused for a
-# minute, so each password is typed once.
-SSH_COMMON=(-o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3)
-if [ "$(uname -s)" = Linux ]; then
-    mkdir -p ~/.ssh
-    SSH_COMMON+=(-o ControlMaster=auto -o "ControlPath=$HOME/.ssh/bifrost-%r@%h:%p" -o ControlPersist=60)
-fi
-SSH_ROUTER=("${SSH_COMMON[@]}" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
-SSH_PI=("${SSH_COMMON[@]}" -o StrictHostKeyChecking=accept-new)
-
-# ---- config ---------------------------------------------------------
-
-usage() { sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+usage() { sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 case "${1:-}" in
-    routers|main|ap|wifi-watch|pi-gateway|pi) ;;
-    sdcard) ;;
+    routers|main|ap|wifi-watch|pi-gateway|pi|sdcard) ;;
     *) usage ;;
 esac
+
+# ---- config ---------------------------------------------------------
 
 if [ "$1" != sdcard ]; then
     [ -f "$CONF" ] || die "$CONF is missing: cp -n $CONF.example $CONF, then fill it in"
     set +u; . "./$CONF"; set -u
-    : "${APS:=}" "${BOT_TOKEN:=}" "${PI_MAC:=}" "${HOST_MAC:=}"
+    : "${APS:=}" "${BOT_TOKEN:=}" "${PI_MAC:=}" "${HOST_MAC:=}" "${PI_USER:=}" "${PI_PASSWORD:=}" "${ROOT_PASSWORD:=}"
     PI_PORT=usb0
     AP_HOSTS=""
     for _e in $APS; do _r=${_e#*,}; AP_HOSTS="${AP_HOSTS:+$AP_HOSTS }${_r%%,*}"; done
@@ -72,12 +63,13 @@ require() {
     done
 }
 
-# emit VAR... - shell assignments, single-quoted so any value survives ash
+# sq <value> - single-quoted for any POSIX shell (the routers run ash)
+sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+# emit VAR... - shell assignments a device script can source
 emit() {
     local v
-    for v in "$@"; do
-        printf "%s='%s'\n" "$v" "$(printf '%s' "${!v-}" | sed "s/'/'\\\\''/g")"
-    done
+    for v in "$@"; do printf '%s=%s\n' "$v" "$(sq "${!v-}")"; done
 }
 
 # stage <dir> <config file name> <vars> - a temp copy of dir with its
@@ -93,7 +85,39 @@ stage() {
     echo "$STAGE/${1##*/}"
 }
 
-# ---- ssh helpers ----------------------------------------------------
+# ---- ssh ------------------------------------------------------------
+
+# deploy.sh logs in with its own key, installed once per device (with
+# the password from bifrost.conf) and kept by a "keep settings" flash.
+# Host keys aren't pinned: every flash makes new ones (LAN only). On
+# Linux, one connection per host is reused for a minute.
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+[ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N '' -C bifrost-deploy -f "$KEY"
+SSH_OPTS=(-i "$KEY" -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3
+          -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
+if [ "$(uname -s)" = Linux ]; then
+    SSH_OPTS+=(-o ControlMaster=auto -o "ControlPath=$HOME/.ssh/bifrost-%r@%h:%p" -o ControlPersist=60)
+fi
+
+# trust <user@host> <authorized_keys path on it> <password or empty>
+# Installs the deploy key unless it already works. Factory OpenWrt has no
+# root password, so a fresh router needs none.
+trust() {
+    # ssh keeps the FIRST value of each option: these must come before SSH_OPTS
+    ssh -o ControlPath=none -o BatchMode=yes "${SSH_OPTS[@]}" "$1" true 2>/dev/null && return 0
+    local add="f=$2; umask 077; mkdir -p \"\${f%/*}\"; touch \"\$f\"; k=\$(cat);
+               grep -qxF \"\$k\" \"\$f\" || echo \"\$k\" >> \"\$f\"; chmod 600 \"\$f\""
+    if [ -n "$3" ] && command -v sshpass >/dev/null; then
+        SSHPASS=$3 sshpass -e ssh -o ControlPath=none -o PreferredAuthentications=password,keyboard-interactive \
+            "${SSH_OPTS[@]}" "$1" "$add" < "$KEY.pub" || true
+    else
+        say "authorizing deploy.sh's key on $1 - its password is asked this once"
+        [ -n "$3" ] && echo "    (install sshpass and it'll use the password from $CONF instead)"
+        ssh -o ControlPath=none "${SSH_OPTS[@]}" "$1" "$add" < "$KEY.pub" || true
+    fi
+    ssh -o ControlPath=none -o BatchMode=yes "${SSH_OPTS[@]}" "$1" true 2>/dev/null \
+        || die "couldn't log in to $1 with the deploy key"
+}
 
 port_open() { timeout 3 bash -c "</dev/tcp/$1/22" 2>/dev/null; }
 
@@ -110,8 +134,9 @@ wait_reboot() {
 
 # router_run <ip> <local dir> <remote command>: copy dir to /tmp, run.
 router_run() {
-    scp -O -q -r "${SSH_ROUTER[@]}" "$2" "root@$1:/tmp/"
-    ssh -t "${SSH_ROUTER[@]}" "root@$1" "$3"
+    trust "root@$1" /etc/dropbear/authorized_keys "$ROOT_PASSWORD"
+    scp -O -q -r "${SSH_OPTS[@]}" "$2" "root@$1:/tmp/"
+    ssh -t "${SSH_OPTS[@]}" "root@$1" "$3"
 }
 
 ap_ip() {
@@ -120,6 +145,15 @@ ap_ip() {
         [ "${e%%,*}" = "$1" ] && { e=${e#*,}; echo "${e%%,*}"; return; }
     done
     die "no AP named '$1' in APS (have: $(for e in $APS; do printf '%s ' "${e%%,*}"; done))"
+}
+
+# pi_login [--usb] - user@address of the Pi, with the deploy key trusted
+pi_login() {
+    require PI_USER PI_IP
+    local addr=$PI_IP
+    [ "${1:-}" = --usb ] && addr=$PI_USB_IP
+    trust "$PI_USER@$addr" '$HOME/.ssh/authorized_keys' "$PI_PASSWORD" >&2
+    echo "$PI_USER@$addr"
 }
 
 # ---- targets --------------------------------------------------------
@@ -154,25 +188,29 @@ cmd_ap() {
 cmd_wifi_watch() {
     require BOT_TOKEN CHAT_ID PEOPLE
     say "wifi-watch addon on $GW_IP"
+    # AP_PASSWORD lets it authorize its own key on the APs without asking.
     router_run "$GW_IP" "$(stage router/addon-wifi-watch wifi-watch.conf "$WATCH_VARS")" \
-        "sh /tmp/addon-wifi-watch/install.sh"
+        "AP_PASSWORD=$(sq "$ROOT_PASSWORD") sh /tmp/addon-wifi-watch/install.sh"
 }
 
 # Record the Pi's pinned MACs in bifrost.conf (PI_MAC for the router's
 # lease, both for giving a reflashed Pi the same ones).
 record_pi_macs() {
-    local pinned
-    pinned=$(ssh "${SSH_PI[@]}" "$1" cat /etc/modprobe.d/usb-gadget.conf)
+    local login pinned
+    login=$(pi_login "$@")
+    pinned=$(ssh "${SSH_OPTS[@]}" "$login" cat /etc/modprobe.d/usb-gadget.conf)
     PI_MAC=$(sed -n 's/.*dev_addr=\([^ ]*\).*/\1/p' <<<"$pinned")
     HOST_MAC=$(sed -n 's/.*host_addr=\([^ ]*\).*/\1/p' <<<"$pinned")
-    [ -n "$PI_MAC" ] && [ -n "$HOST_MAC" ] || die "no pinned MACs on the Pi - run: deploy.sh pi $1 network"
+    [ -n "$PI_MAC" ] && [ -n "$HOST_MAC" ] || die "no pinned MACs on the Pi - run: deploy.sh pi ${1:-} network"
     sed -i -e "s/^PI_MAC=\"[^\"]*\"/PI_MAC=\"$PI_MAC\"/" \
            -e "s/^HOST_MAC=\"[^\"]*\"/HOST_MAC=\"$HOST_MAC\"/" "$CONF"
     echo "    PI_MAC=$PI_MAC HOST_MAC=$HOST_MAC recorded in $CONF"
 }
 
 cmd_pi_gateway() {
-    [ -n "${1:-}" ] && { say "reading the Pi's MACs"; record_pi_macs "$1"; }
+    if [ "${1:-}" = --usb ] || [ -z "$PI_MAC" ]; then
+        say "reading the Pi's MACs"; record_pi_macs "$@"
+    fi
     require PI_MAC PI_IP WG_PORT
     say "pi-gateway addon on $GW_IP"
     router_run "$GW_IP" "$(stage router/addon-pi-gateway pi-gateway.conf "$GATEWAY_VARS")" \
@@ -217,32 +255,36 @@ cmd_sdcard() {
     say "USB gadget mode on. Eject the card and boot the Pi from it."
 }
 
-# Run pi/setup.sh on the Pi. The script and its config travel inside the
-# SSH command (one connection: one password, plus sudo) and are deleted after.
+# Run pi/setup.sh on the Pi. Script and config travel inside the SSH
+# command and are deleted after. With PI_PASSWORD set, sudo is answered
+# from it; otherwise sudo asks.
 cmd_pi() {
-    local target=${1:-}; shift || true
-    [ -n "$target" ] || die "usage: deploy.sh pi user@host [step | client ...]"
-    local s c args
+    local where=""
+    [ "${1:-}" = --usb ] && { where=--usb; shift; }
+    local login s c args unlock=""
+    login=$(pi_login $where)
     # shellcheck disable=SC2086
     s=$(base64 -w0 pi/setup.sh); c=$(emit $PI_VARS | base64 -w0)
+    [ -n "$PI_PASSWORD" ] && \
+        unlock="{ echo $(printf '%s\n' "$PI_PASSWORD" | base64 -w0) | base64 -d | sudo -S -p '' -v 2>/dev/null || true; } &&"
     args=$(printf '%q ' "$@")
-    say "pi/setup.sh ${*:-all} on $target"
-    ssh -t "${SSH_PI[@]}" "$target" "
+    say "pi/setup.sh ${*:-all} on $login"
+    ssh -t "${SSH_OPTS[@]}" "$login" "
         d=\$(mktemp -d) && chmod 700 \"\$d\" &&
         echo $s | base64 -d > \"\$d/setup.sh\" && echo $c | base64 -d > \"\$d/pi.conf\" &&
-        sudo bash \"\$d/setup.sh\" $args; rc=\$?; rm -rf \"\$d\"; exit \$rc" || true
+        $unlock sudo bash \"\$d/setup.sh\" $args; rc=\$?; rm -rf \"\$d\"; exit \$rc" || true
 
     if [ "${1:-}" = client ] && [ "${2:-}" = add ] && [ -n "${3:-}" ]; then
         local name=$3
-        scp -q "${SSH_PI[@]}" "$target:wg-$name.conf" ~/ \
-            && ssh "${SSH_PI[@]}" "$target" "rm -f wg-$name.conf" \
+        scp -q "${SSH_OPTS[@]}" "$login:wg-$name.conf" ~/ \
+            && ssh "${SSH_OPTS[@]}" "$login" "rm -f wg-$name.conf" \
             && say "client config saved to ~/wg-$name.conf (has the private key)" \
             && echo "    Fedora: sudo nmcli connection import type wireguard file ~/wg-$name.conf" \
             && echo "    Other:  import it in the WireGuard app, then delete the file"
     fi
 }
 
-case "${1:-}" in
+case "$1" in
     routers)    cmd_routers ;;
     main)       cmd_main ;;
     ap)         shift; cmd_ap "$@" ;;

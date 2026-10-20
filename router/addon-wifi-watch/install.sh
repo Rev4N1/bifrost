@@ -162,7 +162,8 @@ make_key() {
 }
 
 # Append our public key to one AP. Uses key auth if it already works,
-# otherwise asks for the AP's root password.
+# otherwise AP_PASSWORD (deploy.sh passes ROOT_PASSWORD for this run
+# only, never written to disk), otherwise asks for it.
 push_key() {
     _h="$1"
     if key_works "$_h"; then
@@ -185,8 +186,15 @@ push_key() {
          sort -u /etc/dropbear/authorized_keys -o /etc/dropbear/authorized_keys &&
          chmod 600 /etc/dropbear/authorized_keys'
 
-    say "  $_h - authorizing (enter the AP's root password)"
-    printf '%s\n' "$_pub" | "$SSH_BIN" $SSH_ASK "root@$_h" "$_append" >/dev/null 2>&1
+    if [ -n "${AP_PASSWORD:-}" ] && [ "$SSH_KIND" = dropbear ]; then
+        # dbclient takes the password from the environment.
+        say "  $_h - authorizing"
+        printf '%s\n' "$_pub" | DROPBEAR_PASSWORD="$AP_PASSWORD" \
+            "$SSH_BIN" $SSH_ASK "root@$_h" "$_append" >/dev/null 2>&1
+    else
+        say "  $_h - authorizing (enter the AP's root password)"
+        printf '%s\n' "$_pub" | "$SSH_BIN" $SSH_ASK "root@$_h" "$_append" >/dev/null 2>&1
+    fi
 
     if key_works "$_h"; then
         ok "$_h - authorized"
