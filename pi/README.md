@@ -78,7 +78,7 @@ token are kept.
 
 | Step | |
 |---|---|
-| `network` | Turns off `rpi-usb-gadget`'s auto-switcher. It only recognizes a PC's connection sharing, so on a router it would fall back to running an authoritative DHCP server on your LAN. Makes `usb0` a DHCP client with IPv6 link-local, and pins the `g_ether` MACs, which are otherwise random every boot. |
+| `network` | Keeps `rpi-usb-gadget`'s auto-switcher enabled: it's what brings `usb0` up at boot. On a router the switcher picks the "shared" profile, which as shipped would run an authoritative DHCP server on your LAN, so that profile becomes a plain DHCP client with IPv6 link-local. Also pins the `g_ether` MACs, which are otherwise random every boot. |
 | `system` | Updates, with automatic security updates. Logs and swap in RAM only, and log2ram removed (Trixie has no rsyslog). Bluetooth, Wi-Fi, LED, display driver, audio and idle consoles off; GPU memory at its minimum. |
 | `duckdns` | Updates `<subdomain>.duckdns.org` every 5 minutes, treating `KO` as a failure. |
 | `wireguard` | Creates the server once. It never regenerates keys, so a re-run is a no-op. |

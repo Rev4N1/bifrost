@@ -32,17 +32,21 @@ NEED_REBOOT=0
 CFG=/boot/firmware/config.txt
 
 # ---- network: usb0 as a plain DHCP client with fixed MACs ----------
-# rpi-usb-gadget's auto-switcher only recognizes a PC's connection
-# sharing; on a router it falls back to "shared" mode, an authoritative
-# DHCP server on the bridged LAN. So: switcher off, shared profile
-# turned into a DHCP client. g_ether picks random MACs every boot, and
-# the router's static lease needs a fixed one, so they get pinned.
+# rpi-usb-gadget's auto-switcher (rpi-usb-gadget-ics) is what brings
+# usb0 up at boot: NetworkManager leaves USB-gadget interfaces alone
+# unless something activates them. It must stay ENABLED. On a router it
+# picks the "shared" profile (it only recognizes a PC's connection
+# sharing), so that profile is turned into a plain DHCP client here;
+# as shipped it would be an authoritative DHCP server on the bridged
+# LAN. g_ether picks random MACs every boot, and the router's static
+# lease needs a fixed one, so they get pinned.
 phase_network() {
     hdr "USB network"
     nmcli -t -f NAME connection show | grep -qx 'USB Gadget (shared)' \
         || die "no 'USB Gadget (shared)' profile - is USB gadget mode on? (deploy.sh sdcard)"
 
-    systemctl disable --now rpi-usb-gadget-ics.service >/dev/null 2>&1 || true
+    systemctl enable rpi-usb-gadget-ics.service >/dev/null 2>&1 \
+        || die "can't enable rpi-usb-gadget-ics.service - it's what brings usb0 up at boot"
     want="yes:auto:link-local"
     have=$(nmcli -g connection.autoconnect,ipv4.method,ipv6.method connection show "USB Gadget (shared)" | paste -sd:)
     if [ "$have" != "$want" ]; then
@@ -51,7 +55,7 @@ phase_network() {
         NEED_REBOOT=1
     fi
     nmcli connection modify "USB Gadget (client)" connection.autoconnect no 2>/dev/null || true
-    ok "DHCP client, IPv6 link-local, auto-switcher off"
+    ok "DHCP client, IPv6 link-local, switcher on (it brings usb0 up at boot)"
 
     conf=/etc/modprobe.d/usb-gadget.conf
     cur_dev=$(sed -n 's/.*dev_addr=\([^ ]*\).*/\1/p' "$conf" 2>/dev/null || true)
