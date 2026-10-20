@@ -69,6 +69,34 @@ if wait_for_internet; then
     install_usteer
 fi
 
+# ---- UPnP / NAT-PMP (UPNP in bifrost.conf) ------------------------
+# Its packages don't survive a flash, so they're reinstalled here. Its
+# options (/etc/config/upnpd, kept by "keep settings", editable in
+# LuCI) are left alone; only the on/off switch is set.
+hdr "UPnP"
+if [ "${UPNP:-0}" = 1 ]; then
+    if [ ! -x /etc/init.d/miniupnpd ]; then
+        apk add luci-app-upnp >/dev/null 2>&1 || apk add miniupnpd-nftables >/dev/null 2>&1
+    fi
+    if [ -x /etc/init.d/miniupnpd ]; then
+        uci -q get upnpd.config >/dev/null || uci set upnpd.config=upnpd
+        uci set upnpd.config.enabled='1'
+        uci commit upnpd
+        /etc/init.d/miniupnpd enable >/dev/null 2>&1
+        /etc/init.d/miniupnpd restart >/dev/null 2>&1
+        ok "on"
+    else
+        warn "couldn't install UPnP (no internet?) - re-run this script later"
+    fi
+elif [ -x /etc/init.d/miniupnpd ]; then
+    uci -q set upnpd.config.enabled='0' && uci commit upnpd
+    /etc/init.d/miniupnpd stop >/dev/null 2>&1
+    /etc/init.d/miniupnpd disable >/dev/null 2>&1
+    ok "off"
+else
+    ok "off"
+fi
+
 setup_wireless "$MAIN_HOSTNAME" "$MAIN_CH24" "$BW24" "$MAIN_CH5" "$BW5"
 
 finish

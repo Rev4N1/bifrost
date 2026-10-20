@@ -7,7 +7,8 @@ piece, and every piece is safe to re-run after a flash.
 
 - **Routers:** one SSID everywhere with 802.11r/k/v/w fast roaming, `usteer`
   steering clients to the best AP, non-overlapping channels, lower 2.4 GHz
-  power, hardware NAT offload, and packet steering.
+  power, hardware NAT offload, packet steering, and optional UPnP (`UPNP`),
+  reinstalled after every flash.
 - **Pi:** a WireGuard endpoint on the main router's USB port, locked down with
   nftables, kept reachable by DuckDNS, and stripped down for performance and
   SD-card life.

@@ -32,6 +32,7 @@ MAIN_CH24="1"
 MAIN_CH5="36"
 DNS_LIST="9.9.9.11 149.112.112.11"   # upstream resolvers
 DHCP_DNS_OPTION=""          # DNS handed to clients; empty = the router. e.g. "6,192.168.1.1,9.9.9.9"
+UPNP="0"                    # 1 = UPnP/NAT-PMP on (lets consoles/apps open ports), 0 = off
 
 # Dumb APs: "hostname,ip,ch24,ch5", space separated. Channels must not
 # overlap the main router or each other. At 80 MHz: 36 = 36-48,
