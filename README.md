@@ -122,9 +122,8 @@ router/
 ## Related
 
 [Skidbladnir](https://github.com/Rev4N1/skidbladnir) turns a Raspberry Pi Zero
-2 W into a pocket Tailscale exit node. It plugs into the main router's USB
-port at home, and joins any Wi-Fi elsewhere. After a router flash, also run
-its `./deploy.sh router`.
+2 W into a pocket Tailscale exit node that works on any Wi-Fi, with nothing to
+set up on the router.
 
 ## License
 
