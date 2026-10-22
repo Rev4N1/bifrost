@@ -78,6 +78,7 @@ SSH_OPTS=(-o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3
           -o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
           -o LogLevel=ERROR)
 if [ "$(uname -s)" = Linux ]; then
+    mkdir -p ~/.ssh && chmod 700 ~/.ssh
     SSH_OPTS=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/cm-%r@%h:%p" -o ControlPersist=60 "${SSH_OPTS[@]}")
 fi
 
@@ -125,7 +126,7 @@ case "$1" in
         echo "    Other:  import it in the WireGuard app, then delete the file"
         ;;
     revoke)
-        say "revoke client $1 on $GW_IP"
+        say "revoke client $2 on $GW_IP"
         router_run "sh /tmp/wireguard/install.sh client revoke $(sq "$2")"
         ;;
     list)

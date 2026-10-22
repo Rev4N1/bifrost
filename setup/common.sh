@@ -220,8 +220,12 @@ finish() {
         say "  no config change - not rebooting"
         exit 0
     fi
+    # Reboot in the background and exit 100, so deploy.sh knows for sure
+    # a reboot is coming: a plain `reboot` returns at once, and the SSH
+    # session would often end with 0, as if nothing had changed. HUP is
+    # ignored (top of this file), so the session closing can't stop it.
     say "  rebooting in 3s"
     sync
-    sleep 3
-    reboot
+    ( sleep 3; reboot ) </dev/null >/dev/null 2>&1 &
+    exit 100
 }

@@ -106,6 +106,7 @@ SSH_OPTS=(-o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3
           -o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
           -o LogLevel=ERROR)
 if [ "$(uname -s)" = Linux ]; then
+    mkdir -p ~/.ssh && chmod 700 ~/.ssh
     SSH_OPTS=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/cm-%r@%h:%p" -o ControlPersist=60 "${SSH_OPTS[@]}")
 fi
 
@@ -137,42 +138,35 @@ wait_up() {
 }
 
 # wait_reboot <ip it had> <ip it comes back on>
-# The main router keeps its address, so watching for it to go down would
-# just burn 90 s on every run. Give it a moment to drop, then poll.
+# Only called when a reboot is certain: wait for it to go down (it may
+# already be), then for it to come back.
 wait_reboot() {
     say "waiting for $2 to come back"
-    if [ "$1" = "$2" ]; then
-        sleep 5
-    else
-        for _ in $(seq 45); do port_open "$1" || break; sleep 2; done
-    fi
+    for _ in $(seq 45); do port_open "$1" || break; sleep 2; done
     wait_up "$2"
 }
 
 # router_run <ip> <local dir> <remote command>: copy dir to /tmp, run.
+# The copy logs in first, so a wrong password or an unreachable router
+# stops here (exit 2), before anything runs or is mistaken for a reboot.
 router_run() {
-    pw scp -O -q -r "${SSH_OPTS[@]}" "$2" "root@$1:/tmp/"
+    pw scp -O -q -r "${SSH_OPTS[@]}" "$2" "root@$1:/tmp/" \
+        || { warn "couldn't copy to $1 - wrong ROOT_PASSWORD, or not reachable?"; return 2; }
     pw ssh -t "${SSH_OPTS[@]}" "root@$1" "$3"
 }
 
 # run_step <ip> <local dir> <remote command> <ip after>
-# The scripts reboot only when they changed something, which drops the SSH
-# session (255). Any other non-zero exit is a real failure: stop there
-# instead of waiting five minutes for a reboot that is not coming.
+# The setup scripts exit 0 when nothing changed, and 100 when they are
+# about to reboot. A dropped session (255) is a dumb AP moving to its
+# own IP mid-run; it then finishes and reboots by itself. Anything else
+# is a real failure: stop there.
 run_step() {
     local rc=0
     router_run "$1" "$2" "$3" || rc=$?
     case "$rc" in
-        0)
-            sleep 3
-            if port_open "$4"; then
-                say "  no config change - no reboot"
-            else
-                wait_reboot "$1" "$4"
-            fi
-            ;;
-        255) wait_reboot "$1" "$4" ;;
-        *)   die "setup failed on $1 (exit $rc)" ;;
+        0)       say "  no config change - no reboot" ;;
+        100|255) wait_reboot "$1" "$4" ;;
+        *)       die "setup failed on $1 (exit $rc)" ;;
     esac
 }
 
