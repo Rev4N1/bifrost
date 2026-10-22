@@ -72,13 +72,13 @@ After a deploy, the installer stays in `/tmp` on the router until its next
 reboot:
 
 ```bash
-ssh -i ~/.ssh/bifrost_ed25519 root@192.168.1.1 sh /tmp/addon-wifi-watch/install.sh --check      # diagnose
-ssh -i ~/.ssh/bifrost_ed25519 root@192.168.1.1 sh /tmp/addon-wifi-watch/install.sh --uninstall  # remove (leaves the SSH key)
+ssh root@192.168.1.1 sh /tmp/addon-wifi-watch/install.sh --check      # diagnose
+ssh root@192.168.1.1 sh /tmp/addon-wifi-watch/install.sh --uninstall  # remove (leaves the SSH key)
 ```
 
 ## Operating
 
-On the main router (`ssh -i ~/.ssh/bifrost_ed25519 root@192.168.1.1`):
+On the main router (`ssh root@192.168.1.1`):
 
 ```sh
 logread -e wifi-watch   # what the notifier decided and why

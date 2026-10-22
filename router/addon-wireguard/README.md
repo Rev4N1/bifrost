@@ -56,8 +56,8 @@ it later. A peer added in LuCI keeps its private key on the router.
 ## Check, start over
 
 ```bash
-ssh -i ~/.ssh/bifrost_ed25519 root@192.168.1.1 sh /tmp/addon-wireguard/install.sh --check      # wg0, peers, zone, WAN not CGNAT, DuckDNS
-ssh -i ~/.ssh/bifrost_ed25519 root@192.168.1.1 sh /tmp/addon-wireguard/install.sh --uninstall  # removes it all, keys and peers included
+ssh root@192.168.1.1 sh /tmp/addon-wireguard/install.sh --check      # wg0, peers, zone, WAN not CGNAT, DuckDNS
+ssh root@192.168.1.1 sh /tmp/addon-wireguard/install.sh --uninstall  # removes it all, keys and peers included
 ```
 
 The installer stays in `/tmp` until the router reboots; otherwise run

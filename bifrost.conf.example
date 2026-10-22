@@ -23,8 +23,8 @@ ZONENAME="CHANGE_ME"        # e.g. Europe/Berlin
 TIMEZONE="CHANGE_ME"        # POSIX TZ for it, e.g. CET-1CEST,M3.5.0,M10.5.0/3
 NTP_SERVER="pool.ntp.org"
 
-# Root password on every router. deploy.sh also uses it once per
-# router to install its own SSH key, so it never asks again.
+# Root password on every router. deploy.sh logs in with it (typed for
+# you when sshpass is installed).
 ROOT_PASSWORD="CHANGE_ME"
 
 

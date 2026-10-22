@@ -18,7 +18,6 @@ cd "$(dirname "$0")"
 
 CONF=bifrost.conf
 FACTORY_IP=192.168.1.1
-KEY="$HOME/.ssh/bifrost_ed25519"
 
 # What each device gets from bifrost.conf. Everything else stays on the PC.
 NET_VARS="SSID WPA_PSK COUNTRY MOBILITY_DOMAIN BW24 BW5 TXPOWER_24 MAIN_HOSTNAME GW_IP NETMASK
@@ -77,36 +76,25 @@ stage() {
 
 # ---- ssh ------------------------------------------------------------
 
-# deploy.sh logs in with its own key, installed once per device (with
-# the password from bifrost.conf) and kept by a "keep settings" flash.
-# Host keys aren't pinned: every flash makes new ones (LAN only). On
-# Linux, one connection per host is reused for a minute.
-mkdir -p ~/.ssh && chmod 700 ~/.ssh
-[ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N '' -C bifrost-deploy -f "$KEY"
-SSH_OPTS=(-i "$KEY" -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3
-          -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
+# Passwords only. With sshpass installed, ROOT_PASSWORD is typed for
+# you; without it, ssh asks (a factory-fresh router has none). Host keys
+# aren't pinned: every flash makes new ones (LAN only). On Linux, one
+# connection per host is reused for a minute, so a step asks once.
+SSH_OPTS=(-o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3
+          -o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+          -o LogLevel=ERROR)
 if [ "$(uname -s)" = Linux ]; then
+    mkdir -p ~/.ssh && chmod 700 ~/.ssh
     SSH_OPTS+=(-o ControlMaster=auto -o "ControlPath=$HOME/.ssh/bifrost-%r@%h:%p" -o ControlPersist=60)
 fi
 
-# trust <user@host> <authorized_keys path on it> <password or empty>
-# Installs the deploy key unless it already works. Factory OpenWrt has no
-# root password, so a fresh router needs none.
-trust() {
-    # ssh keeps the FIRST value of each option: these must come before SSH_OPTS
-    ssh -o ControlPath=none -o BatchMode=yes "${SSH_OPTS[@]}" "$1" true 2>/dev/null && return 0
-    local add="f=$2; umask 077; mkdir -p \"\${f%/*}\"; touch \"\$f\"; k=\$(cat);
-               grep -qxF \"\$k\" \"\$f\" || echo \"\$k\" >> \"\$f\"; chmod 600 \"\$f\""
-    if [ -n "$3" ] && command -v sshpass >/dev/null; then
-        SSHPASS=$3 sshpass -e ssh -o ControlPath=none -o PreferredAuthentications=password,keyboard-interactive \
-            "${SSH_OPTS[@]}" "$1" "$add" < "$KEY.pub" || true
+# pw <ssh|scp> <args...> - run it, typing ROOT_PASSWORD when sshpass is there
+pw() {
+    if [ -n "$ROOT_PASSWORD" ] && command -v sshpass >/dev/null; then
+        SSHPASS=$ROOT_PASSWORD sshpass -e "$@"
     else
-        say "authorizing deploy.sh's key on $1 - its password is asked this once"
-        [ -n "$3" ] && echo "    (install sshpass and it'll use the password from $CONF instead)"
-        ssh -o ControlPath=none "${SSH_OPTS[@]}" "$1" "$add" < "$KEY.pub" || true
+        "$@"
     fi
-    ssh -o ControlPath=none -o BatchMode=yes "${SSH_OPTS[@]}" "$1" true 2>/dev/null \
-        || die "couldn't log in to $1 with the deploy key"
 }
 
 port_open() { timeout 3 bash -c "</dev/tcp/$1/22" 2>/dev/null; }
@@ -124,9 +112,8 @@ wait_reboot() {
 
 # router_run <ip> <local dir> <remote command>: copy dir to /tmp, run.
 router_run() {
-    trust "root@$1" /etc/dropbear/authorized_keys "$ROOT_PASSWORD"
-    scp -O -q -r "${SSH_OPTS[@]}" "$2" "root@$1:/tmp/"
-    ssh -t "${SSH_OPTS[@]}" "root@$1" "$3"
+    pw scp -O -q -r "${SSH_OPTS[@]}" "$2" "root@$1:/tmp/"
+    pw ssh -t "${SSH_OPTS[@]}" "root@$1" "$3"
 }
 
 ap_ip() {
@@ -183,7 +170,11 @@ cmd_wireguard() {
     if [ "${1:-}" = client ]; then
         router_run "$GW_IP" "$dir" "sh /tmp/addon-wireguard/install.sh $(printf '%q ' "$@")"
         if [ "${2:-}" = add ] && [ -n "${3:-}" ]; then
-            scp -O -q "${SSH_OPTS[@]}" "root@$GW_IP:/tmp/wg-$3.conf" ~/                 && ssh "${SSH_OPTS[@]}" "root@$GW_IP" "rm -f /tmp/wg-$3.conf"                 && say "client config saved to ~/wg-$3.conf (has the private key)"                 && echo "    Fedora: sudo nmcli connection import type wireguard file ~/wg-$3.conf"                 && echo "    Other:  import it in the WireGuard app, then delete the file"
+            pw scp -O -q "${SSH_OPTS[@]}" "root@$GW_IP:/tmp/wg-$3.conf" ~/ \
+                && pw ssh "${SSH_OPTS[@]}" "root@$GW_IP" "rm -f /tmp/wg-$3.conf" \
+                && say "client config saved to ~/wg-$3.conf (has the private key)" \
+                && echo "    Fedora: sudo nmcli connection import type wireguard file ~/wg-$3.conf" \
+                && echo "    Other:  import it in the WireGuard app, then delete the file"
         fi
         return
     fi

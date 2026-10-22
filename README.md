@@ -19,7 +19,7 @@ just run it again.
 - **Routers:** OpenWrt 25.12. One main router doing PPPoE, plus any number of
   dumb APs cabled to it.
 - **PC:** Linux with `bash`, `ssh` and `scp`, for `deploy.sh`. `sshpass` is
-  recommended so even the first login to each device is silent
+  recommended so it types the routers' password for you
   (`sudo dnf install sshpass`). Every step also shows how to do it by hand in
   PowerShell, with the OpenSSH client (`ssh`, `scp`).
 
@@ -159,7 +159,7 @@ Flash with **"Keep settings"** checked, then:
 Before flashing, it's worth taking a rollback point of each router:
 
 ```bash
-mkdir -p ~/router-backups && for ip in 192.168.1.1 192.168.1.2 192.168.1.3; do ssh -i ~/.ssh/bifrost_ed25519 root@$ip 'sysupgrade -b /tmp/backup.tar.gz' && scp -O -i ~/.ssh/bifrost_ed25519 root@$ip:/tmp/backup.tar.gz ~/router-backups/backup-$ip.tar.gz; done
+mkdir -p ~/router-backups && for ip in 192.168.1.1 192.168.1.2 192.168.1.3; do ssh root@$ip 'sysupgrade -b /tmp/backup.tar.gz' && scp -O root@$ip:/tmp/backup.tar.gz ~/router-backups/backup-$ip.tar.gz; done
 ```
 
 By hand:
@@ -182,11 +182,10 @@ router/
 - **Each device only gets its own part of `bifrost.conf`.** `deploy.sh` writes
   a small config for each one into a temporary copy on the PC, deleted when it
   exits. The Telegram token never reaches the APs, for example.
-- **No password prompts.** `deploy.sh` logs in with its own SSH key
-  (`~/.ssh/bifrost_ed25519`, created on first run). The first time it meets a
-  router, it installs that key using `ROOT_PASSWORD`. That's silent with
-  `sshpass`, and asks once without it. "Keep settings" keeps the key across
-  flashes.
+- **Passwords, no SSH keys.** `deploy.sh` logs in with `ROOT_PASSWORD`. With
+  `sshpass` installed it types it for you; without it, SSH asks (once per
+  step on Linux, where the connection is reused for a minute). A
+  factory-fresh router has no password, so it asks nothing.
 - **Separate pieces.** `router/setup/` never references an addon, and the
   addons never touch what it owns, so each one runs on its own, in any order.
 - **Host keys aren't pinned.** Every flash gives a router a new SSH host key,
