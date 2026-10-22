@@ -2,7 +2,8 @@
 # ========================================================
 # wireguard addon installer - a WireGuard VPN server on the
 # main router, managed in LuCI. Runs ON the main router;
-# from the PC:  ./deploy.sh wireguard
+# from the PC:  ./deploy.sh   (or ./addons/wireguard/client.sh
+#              for one peer at a time)
 #
 # bifrost.conf seeds it, LuCI owns it. The first run creates
 # each piece from wireguard.conf (written by deploy.sh); after
@@ -35,7 +36,7 @@ fail() { printf '  [FAIL] %s\n' "$*"; RC=1; }
 hdr()  { printf '\n== %s\n' "$*"; }
 die()  { printf '  [FAIL] %s\n' "$*"; exit 1; }
 
-[ -r "$CONF" ] || die "cannot read $CONF - run this through ./deploy.sh wireguard"
+[ -r "$CONF" ] || die "cannot read $CONF - run this through ./deploy.sh"
 . "$CONF"
 if [ "$1" != "--uninstall" ] && grep -qE "=[\"']CHANGE_ME[\"']" "$CONF"; then
     die "$CONF still has CHANGE_ME placeholders"
@@ -287,7 +288,7 @@ client_add() {
     ifup wg0 >/dev/null 2>&1
 
     # The router keeps only the public key; this file is the one copy of
-    # the private key (deploy.sh fetches it, then deletes it).
+    # the private key (client.sh fetches it, then deletes it).
     _conf="/tmp/wg-$_name.conf"
     ( umask 077; cat > "$_conf" <<EOF
 [Interface]
@@ -304,7 +305,7 @@ PersistentKeepalive = 25
 EOF
     )
     qrencode -t ansiutf8 < "$_conf"
-    ok "client $_name -> $_ip (scan the QR above; deploy.sh also saves wg-$_name.conf)"
+    ok "client $_name -> $_ip (scan the QR above; client.sh also saves wg-$_name.conf)"
 }
 
 client_revoke() {

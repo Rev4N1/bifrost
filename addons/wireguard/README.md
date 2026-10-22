@@ -22,13 +22,17 @@ bring `wg0` back up.
 The router itself is closed to VPN clients (zone input `REJECT`), except for
 ping. To manage it over the VPN, add a rule in LuCI.
 
+`client.sh` in this folder is the PC-side peer tool; it never runs on the
+router.
+
 ## Install
 
 ```bash
-./deploy.sh wireguard
+./deploy.sh
 ```
 
-`./deploy.sh routers` runs it too, while `WG_PORT` is set.
+That is the whole deploy, and it applies the addon whenever `WG_PORT` is set.
+There is no separate WireGuard command.
 
 VPN traffic to the LAN isn't NAT'd, so LAN hosts see the client's `10.7.0.x`
 address. A host firewall that only allows its "local subnet" (Windows Remote
@@ -42,11 +46,14 @@ generate a key pair and a preshared key, set Allowed IPs to a free
 the PC:
 
 ```bash
-./deploy.sh wireguard client add phone            # next free IP, QR in the terminal
-./deploy.sh wireguard client add laptop 10.7.0.9  # or a chosen one
-./deploy.sh wireguard client list
-./deploy.sh wireguard client revoke phone
+./addons/wireguard/client.sh add phone            # next free IP, QR in the terminal
+./addons/wireguard/client.sh add laptop 10.7.0.9  # or a chosen one
+./addons/wireguard/client.sh list
+./addons/wireguard/client.sh revoke phone
 ```
+
+Adding a peer changes one router setting, so it is not part of `deploy.sh`.
+Run `./deploy.sh` first (or at least once), so the addon is installed.
 
 Both kinds show up in LuCI and in `client list`. A client added from the PC
 leaves only its public key on the router, and its private key only in
@@ -61,8 +68,8 @@ ssh root@192.168.1.1 sh /tmp/wireguard/install.sh --uninstall  # removes it all,
 ```
 
 The installer stays in `/tmp` until the router reboots; otherwise run
-`./deploy.sh wireguard` first. To re-seed from `bifrost.conf`, uninstall and
-deploy again. Every client then needs a new config, since the server key is new.
+`./deploy.sh` first. To re-seed from `bifrost.conf`, uninstall and deploy
+again. Every client then needs a new config, since the server key is new.
 
 ## Speed
 

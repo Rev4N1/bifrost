@@ -60,15 +60,28 @@ has none). Every flash gives a router a new host key: the commands clear the
 old one with `ssh-keygen -R`, then answer `yes` when SSH asks about the new
 one.
 
-## 3. Routers
+## 3. The network
 
-From factory-fresh routers, in this order:
+`./deploy.sh` is the whole deploy:
+
+```bash
+./deploy.sh
+```
+
+It configures or maintains everything: the main router, every AP, then the
+addons whose part of `bifrost.conf` is filled in. Every step is safe to re-run,
+and a router reboots only when its config actually changed. The one other form
+is `./deploy.sh ap <name>` for a factory-fresh AP (step 2), which has to be
+named because it boots on the main router's address.
 
 1. **Main router.** Plug your PC into it and connect its WAN port:
 
    ```bash
-   ./deploy.sh main
+   ./deploy.sh
    ```
+
+   On the very first run the APs are not set up yet, so it configures the main
+   router, names the APs it skipped, and leaves the addons for the next run.
 
    By hand:
 
@@ -77,63 +90,62 @@ From factory-fresh routers, in this order:
    ```
 
 2. **Each AP.** A factory-fresh AP boots at 192.168.1.1, the same address as
-   the main router, so plug **only your PC** into it:
+   the main router, so plug **only your PC** into it and name it:
 
    ```bash
-   ./deploy.sh ap <hostname> --fresh
+   ./deploy.sh ap <hostname>
    ```
 
-   By hand (an AP that's already set up: its IP from `APS` instead of
-   `192.168.1.1`):
+   It finds the AP at 192.168.1.1, configures it, and waits for its own IP (the
+   session freezes mid-run, that's fine). When it says it's waiting for
+   internet, plug it into the main LAN.
+
+   **Use `ap <name>` whenever the device at 192.168.1.1 is an AP.** Bare
+   `./deploy.sh` treats a factory device there as the main router.
+
+   By hand (a factory-fresh AP at 192.168.1.1; an AP that's already set up
+   uses its IP from `APS`):
 
    ```powershell
    Write-RouterConf setup/network.conf $net; ssh-keygen -R 192.168.1.1; scp -O -r setup root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/setup/dumb-ap.sh <hostname>"
    ```
 
-   It moves to its own IP mid-run (the session freezes, that's fine). When it
-   says it's waiting for internet, plug it into the main LAN.
-
-3. **The addons** whose part of `bifrost.conf` is filled in. The Telegram bot:
+3. **Once every AP is up**, run the same command again. This time it reaches
+   all of them and applies the addons:
 
    ```bash
-   ./deploy.sh wifi-watch
+   ./deploy.sh
    ```
 
-   By hand (it also needs the APs' IPs, and asks each AP's root password
-   once):
+   The Telegram bot is applied when `BOT_TOKEN` is set; WireGuard when
+   `WG_PORT` is set. By hand (it also needs the APs' IPs, and asks each AP's
+   root password once):
 
    ```powershell
    $aps = (Select-String -Path bifrost.conf -Pattern '^APS="([^"]*)"').Matches[0].Groups[1].Value; $apHosts = ($aps -split '\s+' | Where-Object { $_ } | ForEach-Object { ($_ -split ',')[1] }) -join ' '; Write-RouterConf addons/wifi-watch/wifi-watch.conf $watch "AP_HOSTS=""$apHosts"""; scp -O -r addons/wifi-watch root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/wifi-watch/install.sh"
    ```
 
-   WireGuard:
-
-   ```bash
-   ./deploy.sh wireguard
-   ```
-
-   By hand:
-
    ```powershell
    Write-RouterConf addons/wireguard/wireguard.conf $wg; scp -O -r addons/wireguard root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/wireguard/install.sh"
    ```
 
-From then on, one command re-applies everything: the main router, each AP
-(waiting for each reboot), then the addons in use. By hand, that's the blocks
-above, in the same order.
+From then on, after a flash or a config change, it is always the same command:
 
 ```bash
-./deploy.sh routers
+./deploy.sh
 ```
 
-**WireGuard clients:** add peers in LuCI, or print a QR code (it also saves
-`wg-<name>.conf`; delete it once imported):
+**WireGuard clients** are the one thing that is not deploy. Add, list or revoke
+one peer at a time from the PC:
 
 ```bash
-./deploy.sh wireguard client add <name>
+./addons/wireguard/client.sh add <name>
+./addons/wireguard/client.sh list
+./addons/wireguard/client.sh revoke <name>
 ```
 
-By hand (after the WireGuard block above, if the router rebooted since):
+`add` saves `~/wg-<name>.conf` (delete it once imported). By hand (after
+`./deploy.sh` staged the addon; a reboot clears `/tmp`):
 
 ```powershell
 ssh -t root@192.168.1.1 "sh /tmp/wireguard/install.sh client add <name>"; scp -O root@192.168.1.1:/tmp/wg-<name>.conf .; ssh root@192.168.1.1 "rm -f /tmp/wg-<name>.conf"
@@ -153,30 +165,35 @@ Remove-Item setup/network.conf, addons/wifi-watch/wifi-watch.conf, addons/wiregu
 Flash with **"Keep settings"** checked, then:
 
 ```bash
-./deploy.sh routers
+./deploy.sh
 ```
 
-Before flashing, it's worth taking a rollback point of each router:
+Before flashing, take a rollback point of every router (the main and each AP
+from `bifrost.conf`; the IPs below are the example ones):
 
 ```bash
-mkdir -p ~/router-backups && for ip in 192.168.1.1 192.168.1.2 192.168.1.3; do ssh root@$ip 'sysupgrade -b /tmp/backup.tar.gz' && scp -O root@$ip:/tmp/backup.tar.gz ~/router-backups/backup-$ip.tar.gz; done
+stamp=$(date +%F-%H%M); mkdir -p ~/bifrost-backups/$stamp
+for ip in 192.168.1.1 192.168.1.2 192.168.1.3; do
+    ssh root@$ip 'sysupgrade -b /tmp/backup.tar.gz'
+    scp -O "root@$ip:/tmp/backup.tar.gz" ~/bifrost-backups/$stamp/$ip.tar.gz
+done
 ```
 
-By hand:
-
-```powershell
-New-Item -ItemType Directory -Force ~\router-backups | Out-Null; foreach ($ip in '192.168.1.1','192.168.1.2','192.168.1.3') { ssh root@$ip 'sysupgrade -b /tmp/backup.tar.gz'; scp -O "root@${ip}:/tmp/backup.tar.gz" "$HOME\router-backups\backup-$ip.tar.gz" }
-```
+To roll back, flash the router with **"Keep settings"** unchecked, let it boot at
+factory `192.168.1.1`, then `scp -O <file> root@192.168.1.1:/tmp/backup.tar.gz`
+and run `sysupgrade -r /tmp/backup.tar.gz` on it; it comes back on its old
+address with the old config.
 
 ## How it works
 
 ```
 bifrost.conf.example      every setting, in the order you fill them in
-deploy.sh                 the one command you run on the PC (./deploy.sh for help)
+deploy.sh                 the one command you run on the PC
 setup/                    main router + dumb APs: network, wireless, dhcp, firewall
 addons/
   wifi-watch/             the Telegram bot (own README)
   wireguard/              WireGuard VPN + DuckDNS on the main router, managed in LuCI
+                          (client.sh adds/list/revokes peers from the PC)
 ```
 
 - **Each device only gets its own part of `bifrost.conf`.** `deploy.sh` writes
@@ -188,6 +205,10 @@ addons/
   factory-fresh router has no password, so it asks nothing.
 - **Separate pieces.** `setup/` never references an addon, and the
   addons never touch what it owns, so each one runs on its own, in any order.
+- **A router only reboots when it has to.** Each setup script hashes `uci
+  export` before and after; if nothing changed, it exits without rebooting
+  (and `deploy.sh` notices, instead of waiting for a reboot that is not
+  coming). Re-running everything on a quiet day touches no Wi-Fi.
 - **Host keys aren't pinned.** Every flash gives a router a new SSH host key,
   so pinning would break every run. `deploy.sh` only talks to your own devices
   on your LAN.

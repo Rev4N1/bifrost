@@ -4,14 +4,17 @@
 # Linux (bash); README.md also shows every step by hand.
 # Settings: bifrost.conf.
 #
-#   ./deploy.sh routers               main router, every AP, then the addons in use
-#   ./deploy.sh main                  main router only
-#   ./deploy.sh ap <hostname> [--fresh]   one dumb AP (--fresh: still at factory 192.168.1.1)
-#   ./deploy.sh wifi-watch            Telegram addon
-#   ./deploy.sh wireguard             WireGuard VPN server on the main router
-#   ./deploy.sh wireguard client add NAME [IP] | revoke NAME | list
+#   ./deploy.sh              main router, every AP, then the addons in use
+#   ./deploy.sh ap <name>    one AP, including a factory-fresh one
 #
-# Every target is safe to re-run.
+# Bare, the same command configures a freshly reset network
+# and maintains it after upgrades. Every device is safe to
+# re-run, and reboots only when something changed.
+#
+# The only argument is an AP name, for the case the network
+# cannot reveal: a factory-reset AP sits at 192.168.1.1, the
+# same address as the main router, so it must be plugged into
+# your PC alone and named.
 # ========================================================
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -27,20 +30,39 @@ WATCH_VARS="BOT_TOKEN CHAT_ID PEOPLE PEOPLE_MAC AP_HOSTS POLL_INTERVAL MISSES_TO
             CONFIRM_ROUNDS CONFIRM_GAP ARPING_TRIES INITIAL_SETTLE AP_FAIL_GRACE"
 WG_VARS="WG_PORT VPN_SUBNET CLIENT_DNS VPN_LAN_ACCESS DUCKDNS_DOMAIN DUCKDNS_TOKEN"
 
-say() { printf '\n>>> %s\n' "$*"; }
-die() { printf 'deploy: %s\n' "$*" >&2; exit 1; }
+say()  { printf '\n>>> %s\n' "$*"; }
+warn() { printf 'deploy: %s\n' "$*" >&2; }
+die()  { printf 'deploy: %s\n' "$*" >&2; exit 1; }
 
-usage() { sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+usage() {
+    cat <<'EOF'
+deploy.sh - the one command you run on the PC
+
+  ./deploy.sh              configure or maintain everything: main router,
+                           every AP, then the addons in use
+  ./deploy.sh ap <name>    one AP, including a factory-fresh one at 192.168.1.1
+
+Every device is safe to re-run, and reboots only when something changed.
+Settings: bifrost.conf.
+EOF
+    exit 1
+}
 case "${1:-}" in
-    routers|main|ap|wifi-watch|wireguard) ;;
-    *) usage ;;
+    "")  ;;
+    ap)  [ "$#" -eq 2 ] || usage ;;
+    *)   usage ;;
 esac
 
 # ---- config ---------------------------------------------------------
 
 [ -f "$CONF" ] || die "$CONF is missing: cp -n $CONF.example $CONF, then fill it in"
-set +u; . "./$CONF"; set -u
+set +u
+# shellcheck source=/dev/null  # the user's file, not in this repo
+. "./$CONF"
+set -u
 : "${APS:=}" "${BOT_TOKEN:=}" "${WG_PORT:=}" "${ROOT_PASSWORD:=}"
+[ "$(stat -c %a "$CONF" 2>/dev/null || printf 600)" = 600 ] \
+    || warn "chmod 600 $CONF (it holds every password)"
 AP_HOSTS=""
 for _e in $APS; do _r=${_e#*,}; AP_HOSTS="${AP_HOSTS:+$AP_HOSTS }${_r%%,*}"; done
 
@@ -84,8 +106,7 @@ SSH_OPTS=(-o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3
           -o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
           -o LogLevel=ERROR)
 if [ "$(uname -s)" = Linux ]; then
-    mkdir -p ~/.ssh && chmod 700 ~/.ssh
-    SSH_OPTS+=(-o ControlMaster=auto -o "ControlPath=$HOME/.ssh/bifrost-%r@%h:%p" -o ControlPersist=60)
+    SSH_OPTS=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/cm-%r@%h:%p" -o ControlPersist=60 "${SSH_OPTS[@]}")
 fi
 
 # pw <ssh|scp> <args...> - run it, typing ROOT_PASSWORD when sshpass is there
@@ -99,21 +120,60 @@ pw() {
 
 port_open() { timeout 3 bash -c "</dev/tcp/$1/22" 2>/dev/null; }
 
-# wait_reboot <ip it had> <ip it comes back on>
-wait_reboot() {
-    say "waiting for $2 to come back"
-    for _ in $(seq 45); do port_open "$1" || break; sleep 2; done
-    for _ in $(seq 150); do
-        if port_open "$2"; then sleep 5; echo "    $2 is up"; return; fi
+# hostname_at <ip> - the router's uci hostname, empty if nothing answers
+hostname_at() {
+    port_open "$1" || return 0
+    pw ssh "${SSH_OPTS[@]}" "root@$1" "uci -q get system.@system[0].hostname" 2>/dev/null || true
+}
+
+# wait_up <ip> - poll until SSH answers again (5 minutes at most)
+wait_up() {
+    local _i
+    for _i in $(seq 150); do
+        if port_open "$1"; then sleep 5; printf '    %s is up\n' "$1"; return 0; fi
         sleep 2
     done
-    die "$2 didn't come back within 5 minutes"
+    die "$1 didn't come back within 5 minutes"
+}
+
+# wait_reboot <ip it had> <ip it comes back on>
+# The main router keeps its address, so watching for it to go down would
+# just burn 90 s on every run. Give it a moment to drop, then poll.
+wait_reboot() {
+    say "waiting for $2 to come back"
+    if [ "$1" = "$2" ]; then
+        sleep 5
+    else
+        for _ in $(seq 45); do port_open "$1" || break; sleep 2; done
+    fi
+    wait_up "$2"
 }
 
 # router_run <ip> <local dir> <remote command>: copy dir to /tmp, run.
 router_run() {
     pw scp -O -q -r "${SSH_OPTS[@]}" "$2" "root@$1:/tmp/"
     pw ssh -t "${SSH_OPTS[@]}" "root@$1" "$3"
+}
+
+# run_step <ip> <local dir> <remote command> <ip after>
+# The scripts reboot only when they changed something, which drops the SSH
+# session (255). Any other non-zero exit is a real failure: stop there
+# instead of waiting five minutes for a reboot that is not coming.
+run_step() {
+    local rc=0
+    router_run "$1" "$2" "$3" || rc=$?
+    case "$rc" in
+        0)
+            sleep 3
+            if port_open "$4"; then
+                say "  no config change - no reboot"
+            else
+                wait_reboot "$1" "$4"
+            fi
+            ;;
+        255) wait_reboot "$1" "$4" ;;
+        *)   die "setup failed on $1 (exit $rc)" ;;
+    esac
 }
 
 ap_ip() {
@@ -126,33 +186,67 @@ ap_ip() {
 
 # ---- targets --------------------------------------------------------
 
-require_net() { require SSID WPA_PSK COUNTRY ROOT_PASSWORD ZONENAME TIMEZONE GW_IP NETMASK; }
+require_net() {
+    require SSID WPA_PSK COUNTRY ROOT_PASSWORD ZONENAME TIMEZONE GW_IP NETMASK
+    case "${MOBILITY_DOMAIN:-}" in
+        [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]) ;;
+        *) die "MOBILITY_DOMAIN must be 4 hex digits (e.g. a1b2)" ;;
+    esac
+}
 
 cmd_main() {
     require_net; require MAIN_HOSTNAME WAN_DEVICE PPPOE_USER PPPOE_PASS MAIN_CH24 MAIN_CH5
-    say "main router $GW_IP"
-    router_run "$GW_IP" "$(stage setup network.conf "$NET_VARS")" \
-        "sh /tmp/setup/main-router.sh" || true   # it reboots
-    wait_reboot "$GW_IP" "$GW_IP"
+    if port_open "$GW_IP"; then
+        say "main router $GW_IP"
+        run_step "$GW_IP" "$(stage setup network.conf "$NET_VARS")" \
+            "sh /tmp/setup/main-router.sh" "$GW_IP"
+        return 0
+    fi
+    # A factory-reset main router still sits at 192.168.1.1.
+    if [ "$GW_IP" != "$FACTORY_IP" ] && [ "$(hostname_at "$FACTORY_IP")" = OpenWrt ]; then
+        say "main router is factory-fresh at $FACTORY_IP"
+        run_step "$FACTORY_IP" "$(stage setup network.conf "$NET_VARS")" \
+            "sh /tmp/setup/main-router.sh" "$GW_IP"
+        return 0
+    fi
+    die "main router not reachable at $GW_IP"
 }
 
 cmd_ap() {
     require_net
-    local name=${1:-} ip target
-    [ -n "$name" ] || die "usage: deploy.sh ap <hostname> [--fresh]"
-    ip=$(ap_ip "$name"); target=$ip
-    if [ "${2:-}" = --fresh ]; then
-        target=$FACTORY_IP
-        # Same address as the main router: never reuse a connection to it.
-        SSH_OPTS=(-o ControlPath=none "${SSH_OPTS[@]}")
-        say "$name is factory-fresh: only your PC should be plugged into it."
-        echo "    It moves to $ip mid-run (the session freezes, that's fine). When it"
-        echo "    says it's waiting for internet, plug it into the main LAN."
+    local name=${1:-} ip h
+    [ -n "$name" ] || die "usage: deploy.sh ap <hostname>"
+    ip=$(ap_ip "$name")
+
+    if port_open "$ip"; then
+        say "AP $name ($ip)"
+        run_step "$ip" "$(stage setup network.conf "$NET_VARS")" \
+            "sh /tmp/setup/dumb-ap.sh $name" "$ip"
+        return 0
     fi
-    say "dumb AP $name ($ip)"
-    router_run "$target" "$(stage setup network.conf "$NET_VARS")" \
-        "sh /tmp/setup/dumb-ap.sh $name" || true   # it reboots
-    wait_reboot "$target" "$ip"
+
+    # Not at its address yet: a factory AP is at 192.168.1.1. The main
+    # router may live there too, so never reuse a pooled connection and
+    # never touch anything that does not call itself OpenWrt.
+    SSH_OPTS=(-o ControlPath=none "${SSH_OPTS[@]}")
+    h=$(hostname_at "$FACTORY_IP")
+    if [ "$h" = OpenWrt ] || [ "$h" = "$name" ]; then
+        say "AP $name is at $FACTORY_IP (factory-fresh or mid-setup)"
+        echo "    Only your PC should be plugged into it. It moves to $ip mid-run"
+        echo "    (the session freezes, that's fine). When it says it's waiting for"
+        echo "    internet, plug it into the main LAN."
+        run_step "$FACTORY_IP" "$(stage setup network.conf "$NET_VARS")" \
+            "sh /tmp/setup/dumb-ap.sh $name" "$ip"
+        return 0
+    fi
+    if [ "$h" = "${MAIN_HOSTNAME:-}" ]; then
+        warn "AP $name is not reachable at $ip (192.168.1.1 is the main router)"
+    elif [ -n "$h" ]; then
+        warn "$FACTORY_IP answered as '$h', not a factory device - left untouched"
+    else
+        warn "AP $name is not reachable at $ip"
+    fi
+    return 1
 }
 
 cmd_wifi_watch() {
@@ -160,41 +254,37 @@ cmd_wifi_watch() {
     say "wifi-watch addon on $GW_IP"
     # AP_PASSWORD lets it authorize its own key on the APs without asking.
     router_run "$GW_IP" "$(stage addons/wifi-watch wifi-watch.conf "$WATCH_VARS")" \
-        "AP_PASSWORD=$(sq "$ROOT_PASSWORD") sh /tmp/wifi-watch/install.sh"
+        "AP_PASSWORD=$(sq "$ROOT_PASSWORD") sh /tmp/wifi-watch/install.sh" \
+        || die "wifi-watch failed on $GW_IP"
 }
 
 cmd_wireguard() {
     require WG_PORT VPN_SUBNET CLIENT_DNS
-    local dir
-    dir=$(stage addons/wireguard wireguard.conf "$WG_VARS")
-    if [ "${1:-}" = client ]; then
-        router_run "$GW_IP" "$dir" "sh /tmp/wireguard/install.sh $(printf '%q ' "$@")"
-        if [ "${2:-}" = add ] && [ -n "${3:-}" ]; then
-            pw scp -O -q "${SSH_OPTS[@]}" "root@$GW_IP:/tmp/wg-$3.conf" ~/ \
-                && pw ssh "${SSH_OPTS[@]}" "root@$GW_IP" "rm -f /tmp/wg-$3.conf" \
-                && say "client config saved to ~/wg-$3.conf (has the private key)" \
-                && echo "    Fedora: sudo nmcli connection import type wireguard file ~/wg-$3.conf" \
-                && echo "    Other:  import it in the WireGuard app, then delete the file"
-        fi
-        return
-    fi
     say "wireguard addon on $GW_IP"
-    router_run "$GW_IP" "$dir" "sh /tmp/wireguard/install.sh"
+    router_run "$GW_IP" "$(stage addons/wireguard wireguard.conf "$WG_VARS")" \
+        "sh /tmp/wireguard/install.sh" \
+        || die "wireguard failed on $GW_IP"
 }
 
-cmd_routers() {
-    local e
+# No arguments: configure or maintain the whole network. An AP that is
+# not reachable (and is not a factory device) is skipped with a warning.
+# The addons need the whole network, so if any AP is missing they wait for
+# the next run.
+cmd_all() {
+    local e rc=0
     cmd_main
-    for e in $APS; do cmd_ap "${e%%,*}"; done
+    for e in $APS; do cmd_ap "${e%%,*}" || rc=1; done
+    if [ "$rc" != 0 ]; then
+        warn "some APs were skipped - addons not touched"
+        warn "run ./deploy.sh ap <name> with only that AP plugged in, then ./deploy.sh again"
+        exit 1
+    fi
     if [ -n "$BOT_TOKEN" ]; then cmd_wifi_watch; else echo "(BOT_TOKEN empty - skipping wifi-watch)"; fi
     if [ -n "$WG_PORT" ]; then cmd_wireguard; else echo "(WG_PORT empty - skipping wireguard)"; fi
-    say "all routers done"
+    say "done"
 }
 
-case "$1" in
-    routers)    cmd_routers ;;
-    main)       cmd_main ;;
-    ap)         shift; cmd_ap "$@" ;;
-    wifi-watch) cmd_wifi_watch ;;
-    wireguard)  shift; cmd_wireguard "$@" ;;
+case "${1:-}" in
+    "")  cmd_all ;;
+    ap)  shift; cmd_ap "$@" ;;
 esac

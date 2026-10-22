@@ -2,7 +2,7 @@
 # ========================================================
 # wifi-watch installer
 #
-# Runs ON the main router; from the PC:  ./deploy.sh wifi-watch
+# Runs ON the main router; from the PC:  ./deploy.sh
 #
 # This is an ADDON. It never touches wireless, network, dhcp
 # or firewall config - the setup/ scripts own those. The only
@@ -45,7 +45,7 @@ fi
 [ -r "$LIB" ] || { echo "cannot read $LIB"; exit 1; }
 . "$LIB"
 ww_load_conf 2>/dev/null || [ "$1" = "--uninstall" ] || {
-    echo "cannot read $WIFI_WATCH_CONF - run this through ./deploy.sh wifi-watch"
+    echo "cannot read $WIFI_WATCH_CONF - run this through ./deploy.sh"
     exit 1
 }
 if [ -z "$1" ] && grep -qE "=[\"']CHANGE_ME[\"']" "$WIFI_WATCH_CONF"; then

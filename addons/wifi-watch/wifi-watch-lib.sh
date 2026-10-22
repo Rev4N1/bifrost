@@ -27,6 +27,11 @@ ww_load_conf() {
         return 1
     fi
     . "$WIFI_WATCH_CONF"
+    # Defaults for anything the config leaves out: an empty POLL_INTERVAL
+    # would make `sleep` fail and turn the loop into a hot loop.
+    : "${POLL_INTERVAL:=30}" "${MISSES_TO_LEAVE:=4}" "${CONFIRM_ROUNDS:=3}" \
+      "${CONFIRM_GAP:=5}" "${ARPING_TRIES:=3}" "${INITIAL_SETTLE:=45}" \
+      "${AP_FAIL_GRACE:=10}" "${AP_HOSTS:=}" "${PEOPLE:=}" "${PEOPLE_MAC:=}"
 }
 
 # hostname -> person, from PEOPLE="substring=name ..."

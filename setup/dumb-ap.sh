@@ -9,8 +9,8 @@
 #
 # A factory-fresh AP is still at 192.168.1.1 and moves to
 # its final IP mid-run, so the SSH session freezes; the
-# script keeps going and reboots on its own.
-# Safe to re-run after every flash.
+# script keeps going and reboots on its own. Safe to re-run
+# after every flash (it reboots only when something changed).
 # ========================================================
 
 . "$(dirname "$0")/common.sh"

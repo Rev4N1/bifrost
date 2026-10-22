@@ -4,10 +4,11 @@
 # DNS, Wi-Fi. Every value comes from bifrost.conf (as
 # network.conf, written by deploy.sh).
 #
-#   ./deploy.sh main          (from the PC; or, on the router:)
+#   ./deploy.sh               (from the PC; or, on the router:)
 #   sh /tmp/setup/main-router.sh
 #
-# Safe to re-run after every flash. Reboots at the end.
+# Safe to re-run after every flash. Reboots at the end only if
+# something actually changed.
 # ========================================================
 
 . "$(dirname "$0")/common.sh"

@@ -51,11 +51,11 @@ With the default tuning, a departure needs 4 consecutive misses (~2 min) **and**
 ## Install
 
 ```bash
-./deploy.sh wifi-watch
+./deploy.sh
 ```
 
-`./deploy.sh routers` runs it too, once `BOT_TOKEN` is set. It's
-idempotent, so re-run it after every flash or after editing anything here,
+The addon is part of every deploy, once `BOT_TOKEN` is set. It's idempotent,
+so re-run it after every flash or after editing anything here,
 `bifrost.conf` included. Each run:
 
 - installs `curl`, `arping`, `timeout` and an SSH client if missing (a flash
@@ -98,7 +98,7 @@ Log lines worth knowing:
 
 ## Configuration
 
-Everything is in part 5 of `bifrost.conf`. Run `./deploy.sh wifi-watch` to apply.
+Everything is in part 5 of `bifrost.conf`. Run `./deploy.sh` to apply.
 
 People are `hostname-substring=name` pairs:
 

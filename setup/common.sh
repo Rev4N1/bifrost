@@ -26,6 +26,13 @@ grep -qE "=[\"']CHANGE_ME[\"']" "$SETUP_DIR/network.conf" && die "network.conf s
 
 [ -f /etc/openwrt_release ] || die "this does not look like OpenWrt"
 
+# What uci looked like before this run. finish() reboots only when it
+# differs, so re-running a setup script does not drop Wi-Fi for nothing.
+_BEFORE=$(uci export 2>/dev/null | md5sum)
+# Set when a package was installed or replaced but the config did not
+# change (wpad needs a Wi-Fi reload, not a reboot).
+NEED_APPLY=0
+
 # ---- system --------------------------------------------------------
 
 # setup_system <hostname>
@@ -89,6 +96,7 @@ install_full_wpad() {
     apk update >/dev/null 2>&1 || { warn "apk update failed, keeping wpad-basic"; return; }
     apk del wpad-basic-mbedtls >/dev/null 2>&1
     if apk add wpad-mbedtls >/dev/null 2>&1; then
+        NEED_APPLY=1
         ok "wpad-mbedtls installed"
     else
         apk add wpad-basic-mbedtls >/dev/null 2>&1
@@ -102,10 +110,15 @@ install_full_wpad() {
 # hop itself fast.
 install_usteer() {
     hdr "usteer"
-    if ! apk list --installed 2>/dev/null | grep -q '^usteer-[0-9]'; then
-        apk add usteer >/dev/null 2>&1 || { warn "usteer install failed"; return; }
+    if apk list --installed 2>/dev/null | grep -q '^usteer-[0-9]'; then
+        ok "usteer already installed"
+        return
     fi
+    apk add usteer >/dev/null 2>&1 || { warn "usteer install failed"; return; }
     /etc/init.d/usteer enable >/dev/null 2>&1
+    # Start it now: nothing else in this run will (the config may be
+    # unchanged, in which case finish() does not reboot).
+    /etc/init.d/usteer restart >/dev/null 2>&1 || true
     ok "usteer installed and enabled"
 }
 
@@ -196,6 +209,17 @@ setup_wireless() {
 
 finish() {
     hdr "Done"
+    _after=$(uci export 2>/dev/null | md5sum)
+    if [ "$_after" = "$_BEFORE" ]; then
+        if [ "$NEED_APPLY" = 1 ]; then
+            # A package was swapped (wpad) but the config is already right:
+            # restart Wi-Fi once so the new binary is actually in use.
+            say "  packages changed - reloading Wi-Fi"
+            wifi reload >/dev/null 2>&1 || warn "wifi reload failed"
+        fi
+        say "  no config change - not rebooting"
+        exit 0
+    fi
     say "  rebooting in 3s"
     sync
     sleep 3
