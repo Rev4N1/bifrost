@@ -1,19 +1,20 @@
 #!/bin/bash
 # ========================================================
-# pi/setup.sh - Raspberry Pi Zero 2 W as a USB-gadget
-# WireGuard gateway. Runs as root on the Pi; deploy.sh
-# copies it over with pi.conf (its part of bifrost.conf),
-# runs it, and deletes both.
+# pi/setup.sh - Raspberry Pi Zero 2 W as a portable
+# Tailscale exit node and subnet router: on the main
+# router's USB at home, on any Wi-Fi elsewhere. Runs as
+# root on the Pi; deploy.sh copies it over with pi.conf
+# (its part of bifrost.conf), runs it, and deletes both.
 #
 #   setup.sh network            usb0 as plain DHCP client + pinned MACs
 #                               (first, while on the PC's USB)
 #   setup.sh                    everything, network included (on the router)
-#   setup.sh system|duckdns|wireguard|firewall    one step
-#   setup.sh client add NAME [IP] | revoke NAME | list
+#   setup.sh system|wifi|tailscale|firewall    one step
+#   setup.sh wifi add SSID [PASSWORD] | forget SSID | list
 #   setup.sh poweroff           shut down (before moving the cable)
 #
 # Every step converges: re-running it changes only what
-# differs, and keeps keys, peers and pinned MACs.
+# differs, and keeps the Tailscale login and pinned MACs.
 # ========================================================
 set -eu
 
@@ -27,8 +28,7 @@ die()  { printf '  [FAIL] %s\n' "$*"; exit 1; }
 [ -r "$DIR/pi.conf" ] || die "pi.conf not found next to $0 - run this through ./deploy.sh pi"
 . "$DIR/pi.conf"
 
-VPN_BASE=${VPN_SUBNET%.*}          # 10.7.0.0/24 -> 10.7.0
-VPN_PREFIX=${VPN_SUBNET#*/}
+TS_SUBNET=100.64.0.0/10            # Tailscale's addresses
 NEED_REBOOT=0
 CFG=/boot/firmware/config.txt
 
@@ -78,7 +78,7 @@ phase_system() {
     export DEBIAN_FRONTEND=noninteractive
     apt-get -qq update
     apt-get -qq -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold full-upgrade
-    apt-get -qq install unattended-upgrades nftables wireguard qrencode curl
+    apt-get -qq install unattended-upgrades nftables curl
     apt-get -qq autoremove
     printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n' \
         > /etc/apt/apt.conf.d/20auto-upgrades
@@ -108,18 +108,20 @@ phase_system() {
 
     hdr "Unused hardware"
     systemctl disable --now bluetooth.service >/dev/null 2>&1 || true
-    systemctl mask --now wpa_supplicant.service >/dev/null 2>&1 || true
+    # Wi-Fi is the uplink away from home: NetworkManager needs wpa_supplicant.
+    systemctl unmask wpa_supplicant.service >/dev/null 2>&1 || true
     systemctl disable --now getty@tty1.service serial-getty@ttyAMA0.service >/dev/null 2>&1 || true
     before=$(md5sum < "$CFG")
     # No display, camera or audio: drop the KMS driver, give the GPU the
-    # minimum RAM. Bluetooth, Wi-Fi and the activity LED off.
+    # minimum RAM. Bluetooth and the activity LED off; Wi-Fi stays on.
     sed -i -e 's/^dtoverlay=vc4-kms-v3d/#&/' \
+           -e '/^dtoverlay=disable-wifi$/d' \
            -e 's/^dtparam=audio=on$/dtparam=audio=off/' \
            -e 's/^camera_auto_detect=1$/camera_auto_detect=0/' \
            -e 's/^display_auto_detect=1$/display_auto_detect=0/' "$CFG"
     [ -z "$(tail -c1 "$CFG")" ] || echo >> "$CFG"
     [ "$(awk '/^\[/ {s=$0} END {print s}' "$CFG")" = "[all]" ] || echo "[all]" >> "$CFG"
-    for l in dtoverlay=disable-bt dtoverlay=disable-wifi \
+    for l in dtoverlay=disable-bt \
              dtparam=act_led_trigger=none dtparam=act_led_activelow=on; do
         grep -qxF "$l" "$CFG" || echo "$l" >> "$CFG"
     done
@@ -128,89 +130,121 @@ phase_system() {
         grep -qxF gpu_mem=16 "$CFG" || echo gpu_mem=16 >> "$CFG"
     fi
     [ "$(md5sum < "$CFG")" = "$before" ] || NEED_REBOOT=1
-    ok "Bluetooth, Wi-Fi, LED, display, audio, consoles off"
+    ok "Bluetooth, LED, display, audio, consoles off"
 }
 
-# ---- duckdns: keep <subdomain>.duckdns.org pointing home -----------
-phase_duckdns() {
-    hdr "DuckDNS"
-    env=/opt/duckdns/duckdns.env
-    mkdir -p /opt/duckdns
-    cur_d=""; cur_t=""
-    [ -f "$env" ] && { cur_d=$(. "$env"; echo "${DUCKDNS_DOMAIN:-}"); cur_t=$(. "$env"; echo "${DUCKDNS_TOKEN:-}"); }
-    d=$DUCKDNS_DOMAIN; [ "$d" = CHANGE_ME ] && d=""
-    d=${d:-$cur_d}; t=${DUCKDNS_TOKEN:-$cur_t}
-    [ -n "$d" ] && [ -n "$t" ] || die "set DUCKDNS_DOMAIN and DUCKDNS_TOKEN in bifrost.conf"
-    ( umask 077; printf 'DUCKDNS_DOMAIN=%s\nDUCKDNS_TOKEN=%s\n' "$d" "$t" > "$env" )
-
-    cat > /opt/duckdns/duck.sh <<'EOF'
-#!/bin/sh
-set -eu
-. /opt/duckdns/duckdns.env
-resp=$(curl -fsS "https://www.duckdns.org/update?domains=${DUCKDNS_DOMAIN}&token=${DUCKDNS_TOKEN}&ip=")
-echo "duckdns: $resp"
-[ "$resp" = "OK" ]
-EOF
-    chmod 750 /opt/duckdns/duck.sh
-    cat > /etc/systemd/system/duckdns.service <<'EOF'
-[Unit]
-Description=DuckDNS IP update
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/opt/duckdns/duck.sh
-EOF
-    cat > /etc/systemd/system/duckdns.timer <<'EOF'
-[Unit]
-Description=Run DuckDNS update every 5 minutes
-
-[Timer]
-OnBootSec=1min
-OnUnitActiveSec=5min
-
-[Install]
-WantedBy=timers.target
-EOF
-    systemctl daemon-reload
-    systemctl enable --now duckdns.timer >/dev/null 2>&1
-    if systemctl start duckdns.service; then
-        ok "$d.duckdns.org updated"
-    else
-        warn "update failed: journalctl -u duckdns.service"
+# ---- wifi: the uplink away from home -------------------------------
+# At home the Pi is online through usb0 (NetworkManager prefers wired);
+# elsewhere it joins any Wi-Fi saved with "wifi add". Saving one works
+# out of range too, e.g. from a laptop on the Pi's USB before a trip.
+phase_wifi() {
+    hdr "Wi-Fi"
+    # Country on the kernel command line: it applies at boot, before
+    # wlan0 exists (on the first run it only appears after the reboot).
+    cmd=/boot/firmware/cmdline.txt
+    if ! grep -qw "cfg80211.ieee80211_regdom=$COUNTRY" "$cmd"; then
+        sed -i -e 's/ *cfg80211\.ieee80211_regdom=[^ ]*//' -e "1s/\$/ cfg80211.ieee80211_regdom=$COUNTRY/" "$cmd"
+        NEED_REBOOT=1
     fi
-}
-
-# ---- wireguard: server (never regenerated once it exists) ----------
-phase_wireguard() {
-    hdr "WireGuard"
-    mkdir -p /etc/wireguard/clients
-    chmod 700 /etc/wireguard /etc/wireguard/clients
-    if [ -e /etc/wireguard/wg0.conf ]; then
-        ok "server exists - keys and peers left untouched"
-    else
-        ( umask 077; cd /etc/wireguard
-          wg genkey | tee server.key | wg pubkey > server.pub
-          cat > wg0.conf <<EOF
-[Interface]
-Address = $VPN_BASE.1/$VPN_PREFIX
-ListenPort = $WG_PORT
-PrivateKey = $(cat server.key)
-# nftables (setup.sh firewall) handles forwarding and NAT.
-EOF
-        )
-        ok "server created"
+    rfkill unblock wifi 2>/dev/null || true
+    nmcli radio wifi on
+    # Power saving makes brcmfmac add up to ~100 ms of latency.
+    mkdir -p /etc/NetworkManager/conf.d
+    want=$(printf '[connection]\nwifi.powersave = 2')
+    if [ "$(cat /etc/NetworkManager/conf.d/wifi-powersave.conf 2>/dev/null)" != "$want" ]; then
+        printf '%s\n' "$want" > /etc/NetworkManager/conf.d/wifi-powersave.conf
+        nmcli general reload conf >/dev/null 2>&1 || true
     fi
-    systemctl enable --now wg-quick@wg0 >/dev/null 2>&1
-    ok "wg0 up, $(wg show wg0 peers | wc -l) peer(s)"
+    ok "on, country $COUNTRY, power saving off, $(wifi_saved | wc -l) network(s) saved"
 }
 
-# ---- firewall: nftables + forwarding, applied with rollback --------
+wifi_saved() { nmcli -t -f NAME,TYPE connection show | sed -n 's/:802-11-wireless$//p'; }
+
+wifi_add() {
+    ssid=$1; pass=${2:-}
+    [ -n "$ssid" ] || die "usage: setup.sh wifi add SSID [PASSWORD]"
+    nmcli connection delete id "$ssid" >/dev/null 2>&1 || true
+    nmcli connection add type wifi ifname wlan0 con-name "$ssid" ssid "$ssid" \
+        connection.autoconnect yes >/dev/null
+    if [ -n "$pass" ]; then
+        nmcli connection modify "$ssid" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$pass"
+    fi
+    nmcli connection up "$ssid" >/dev/null 2>&1 \
+        && ok "$ssid saved and connected" \
+        || ok "$ssid saved (not in range now; it joins by itself when it is)"
+}
+
+wifi_forget() {
+    [ -n "${1:-}" ] || die "usage: setup.sh wifi forget SSID"
+    nmcli connection delete id "$1" >/dev/null 2>&1 || die "no saved Wi-Fi $1"
+    ok "$1 forgotten"
+}
+
+wifi_list() {
+    wifi_saved | sed 's/^/  /'
+    nmcli -t -f DEVICE,STATE,CONNECTION device | awk -F: '$1 == "wlan0" || $1 == "usb0" {print "  now: " $1 " " $2 " " $3}'
+}
+
+# ---- tailscale: exit node + the VPN_LAN_ACCESS hosts ---------------
+# Replaces the old DuckDNS + WireGuard server (removed here if present):
+# Tailscale needs no port forward and works behind any NAT, so the Pi
+# works from wherever it's plugged in.
+phase_tailscale() {
+    hdr "Old WireGuard server"
+    if [ -e /etc/wireguard/wg0.conf ] || [ -e /opt/duckdns ]; then
+        systemctl disable --now wg-quick@wg0 duckdns.timer >/dev/null 2>&1 || true
+        rm -rf /etc/wireguard /opt/duckdns /etc/systemd/system/duckdns.service /etc/systemd/system/duckdns.timer
+        systemctl daemon-reload
+        DEBIAN_FRONTEND=noninteractive apt-get -qq purge wireguard wireguard-tools qrencode >/dev/null 2>&1 || true
+        rm -f /etc/sysctl.d/99-wireguard-forward.conf
+        ok "removed (keys, peers, DuckDNS)"
+    else
+        ok "none"
+    fi
+
+    hdr "Tailscale"
+    if ! command -v tailscale >/dev/null; then
+        . /etc/os-release
+        curl -fsSL "https://pkgs.tailscale.com/stable/debian/$VERSION_CODENAME.noarmor.gpg" \
+            -o /usr/share/keyrings/tailscale-archive-keyring.gpg
+        curl -fsSL "https://pkgs.tailscale.com/stable/debian/$VERSION_CODENAME.tailscale-keyring.list" \
+            -o /etc/apt/sources.list.d/tailscale.list
+        apt-get -qq update
+        DEBIAN_FRONTEND=noninteractive apt-get -qq install tailscale
+    fi
+    systemctl enable --now tailscaled >/dev/null 2>&1
+
+    # Exit node and subnet router both need forwarding.
+    printf 'net.ipv4.ip_forward=1\nnet.ipv6.conf.all.forwarding=1\n' > /etc/sysctl.d/99-tailscale.conf
+    sysctl -q --system
+
+    routes=""
+    for e in $VPN_LAN_ACCESS; do
+        ip=${e%%:*}
+        case " ${routes//,/ } " in *" $ip/32 "*) ;; *) routes="${routes:+$routes,}$ip/32" ;; esac
+    done
+    flags="--hostname=$PI_NAME --advertise-exit-node --advertise-routes=$routes --accept-dns=false"
+    if tailscale status >/dev/null 2>&1; then
+        # Logged in: "set" changes just these, without touching the login.
+        # shellcheck disable=SC2086
+        tailscale set $flags || die "tailscale set failed"
+    else
+        # First login: with TS_AUTHKEY, or it prints a link to open.
+        # shellcheck disable=SC2086
+        tailscale up $flags ${TS_AUTHKEY:+--auth-key="$TS_AUTHKEY"} || die "tailscale up failed"
+    fi
+    tailscale set --auto-update=true >/dev/null 2>&1 || warn "couldn't turn on Tailscale auto-updates"
+    ok "$(tailscale ip -4) as $PI_NAME: exit node, routes ${routes:-none}"
+    say "         approve both in the admin console (Machines > $PI_NAME > Edit route settings),"
+    say "         and turn off its key expiry there"
+}
+
+# ---- firewall: nftables, applied with rollback ---------------------
+# Its own tables only (no "flush ruleset"): tailscaled keeps its rules
+# in tables of its own, and nftables lets a packet through only when
+# every table accepts it.
 phase_firewall() {
     hdr "Firewall"
-    printf 'net.ipv4.ip_forward=1\n' > /etc/sysctl.d/99-wireguard-forward.conf
-    sysctl -q --system
     mkdir -p /etc/nftables.d
 
     lan_rules=""
@@ -220,7 +254,7 @@ phase_firewall() {
             tcp:[0-9]*|udp:[0-9]*) ;;
             *) die "bad VPN_LAN_ACCESS entry '$e' (want ip:tcp|udp:port)" ;;
         esac
-        lan_rules="$lan_rules        iifname \"wg0\" ip saddr $VPN_SUBNET ip daddr $ip $proto dport $port accept
+        lan_rules="$lan_rules        iifname \"tailscale0\" oifname \"usb0\" ip daddr $ip $proto dport $port accept
 "
     done
 
@@ -230,9 +264,17 @@ phase_firewall() {
 # Generated by pi/setup.sh from bifrost.conf - re-running it overwrites this.
 # Rules for other services on the Pi go in /etc/nftables.d/*.nft.
 
-flush ruleset
+table inet bifrost
+delete table inet bifrost
+table ip bifrost_nat
+delete table ip bifrost_nat
 
-table inet filter {
+table inet bifrost {
+    set private4 {
+        type ipv4_addr; flags interval
+        elements = { 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16 }
+    }
+
     chain input {
         type filter hook input priority 0; policy drop;
 
@@ -242,27 +284,20 @@ table inet filter {
         ct state established,related accept
         ct state invalid drop
 
-        # LAN -> Pi (SSH, management)
-        iifname "usb0" ip saddr $LAN_SUBNET ip daddr $PI_IP accept
-        # USB-to-PC recovery: SSH over IPv6 link-local, mDNS for <hostname>.local
-        iifname "usb0" ip6 saddr fe80::/10 tcp dport 22 accept
-        iifname "usb0" udp dport 5353 accept
-        # WireGuard handshakes
-        iifname "usb0" udp dport $WG_PORT accept
-        # VPN peers -> Pi itself
-        iifname "wg0" ip saddr $VPN_SUBNET accept
+        # usb0 is a cable: the home LAN, or your laptop (SSH, mDNS for <hostname>.local)
+        iifname "usb0" accept
+        # Tailscale peers -> Pi (SSH from anywhere)
+        iifname "tailscale0" ip saddr $TS_SUBNET accept
+        # Tailscale direct connections; Wi-Fi gets nothing else
+        udp dport 41641 accept
+        icmp type echo-request accept
     }
 
     chain output {
-        type filter hook output priority 0; policy drop;
+        type filter hook output priority 0; policy accept;
 
         # Never act as a DHCP server on the LAN
         oifname "usb0" udp sport 67 drop
-
-        oifname "lo" accept
-        ct state established,related accept
-        oifname "usb0" accept
-        oifname "wg0" ip daddr $VPN_SUBNET accept
     }
 
     chain forward {
@@ -271,17 +306,17 @@ table inet filter {
         ct state established,related accept
         ct state invalid drop
 
-        # VPN -> the LAN services in VPN_LAN_ACCESS, nothing else on the LAN
+        # Tailscale -> the home LAN services in VPN_LAN_ACCESS, nothing else on the LAN
 $lan_rules
-        # VPN -> internet
-        iifname "wg0" ip saddr $VPN_SUBNET ip daddr != $LAN_SUBNET oifname "usb0" accept
+        # Exit node: Tailscale -> internet, never into whatever network the Pi is on
+        iifname "tailscale0" ip saddr $TS_SUBNET ip daddr != @private4 accept
     }
 }
 
-table ip nat {
+table ip bifrost_nat {
     chain postrouting {
         type nat hook postrouting priority 100; policy accept;
-        ip saddr $VPN_SUBNET oifname "usb0" masquerade
+        ip saddr $TS_SUBNET oifname { "usb0", "wlan0" } masquerade
     }
 }
 
@@ -291,14 +326,19 @@ EOF
 
     if cmp -s "$new" /etc/nftables.conf && systemctl -q is-active nftables; then
         rm -f "$new"
-        ok "rules unchanged and active"
+        ok "rules unchanged"
         return
     fi
+
+    # The WireGuard-era ruleset began with "flush ruleset" and owned
+    # "ip nat"; clear it all once, then let tailscaled rebuild its rules.
+    migrate=0
+    grep -q '^flush ruleset' /etc/nftables.conf 2>/dev/null && migrate=1
 
     # New rules: load them with a 2-minute safety net, and keep them only
     # if a fresh SSH login still works. The rollback runs from a systemd
     # timer, so it happens even if this session (and script) dies: it
-    # puts the previous rules back, or with none, opens the firewall.
+    # puts the previous rules back, or with none, drops ours.
     rm -f /etc/nftables.conf.prev
     [ -f /etc/nftables.conf ] && cp -f /etc/nftables.conf /etc/nftables.conf.prev
     install -m 755 "$new" /etc/nftables.conf
@@ -309,9 +349,17 @@ EOF
         if [ -f /etc/nftables.conf.prev ]; then
             mv -f /etc/nftables.conf.prev /etc/nftables.conf && nft -f /etc/nftables.conf
         else
-            mv -f /etc/nftables.conf /etc/nftables.conf.rejected; nft flush ruleset
-        fi'
-    nft -f /etc/nftables.conf
+            mv -f /etc/nftables.conf /etc/nftables.conf.rejected
+            nft delete table inet bifrost; nft delete table ip bifrost_nat
+        fi
+        systemctl restart tailscaled'
+    if [ "$migrate" = 1 ]; then
+        nft flush ruleset
+        nft -f /etc/nftables.conf
+        systemctl restart tailscaled
+    else
+        nft -f /etc/nftables.conf
+    fi
 
     ans=""
     if [ -t 0 ]; then
@@ -328,100 +376,30 @@ EOF
     fi
 }
 
-# ---- clients -------------------------------------------------------
-client_add() {
-    name=$1; ip=${2:-}
-    [ -n "$name" ] || die "usage: setup.sh client add NAME [IP]"
-    cd /etc/wireguard
-    grep -qx "# $name" wg0.conf && die "client $name already exists"
-    if [ -z "$ip" ]; then
-        last=$(sed -n "s/^AllowedIPs = $VPN_BASE\.\([0-9]*\)\/32$/\1/p" wg0.conf | sort -n | tail -n1)
-        ip=$VPN_BASE.$(( ${last:-1} + 1 ))
-    fi
-    grep -q "AllowedIPs = $ip/32" wg0.conf && die "$ip already used"
-    . /opt/duckdns/duckdns.env 2>/dev/null || die "no DuckDNS config - run setup.sh duckdns first"
-
-    umask 077
-    wg genkey | tee "clients/$name.key" | wg pubkey > "clients/$name.pub"
-    wg genpsk > "clients/$name.psk"
-    cat >> wg0.conf <<EOF
-
-[Peer]
-# $name
-PublicKey = $(cat "clients/$name.pub")
-PresharedKey = $(cat "clients/$name.psk")
-AllowedIPs = $ip/32
-EOF
-    cat > "clients/$name.conf" <<EOF
-[Interface]
-PrivateKey = $(cat "clients/$name.key")
-Address = $ip/32
-DNS = $CLIENT_DNS
-
-[Peer]
-PublicKey = $(cat server.pub)
-PresharedKey = $(cat "clients/$name.psk")
-Endpoint = $DUCKDNS_DOMAIN.duckdns.org:$WG_PORT
-AllowedIPs = 0.0.0.0/0, ::/0
-PersistentKeepalive = 25
-EOF
-    wg syncconf wg0 <(wg-quick strip wg0)
-    qrencode -t ansiutf8 < "clients/$name.conf"
-    # A copy the calling user can fetch (deploy.sh does, then deletes it).
-    if [ -n "${SUDO_USER:-}" ]; then
-        install -m 600 -o "$SUDO_USER" "clients/$name.conf" "$(getent passwd "$SUDO_USER" | cut -d: -f6)/wg-$name.conf"
-    fi
-    # The Pi doesn't need the client's private key.
-    rm -f "clients/$name.key" "clients/$name.conf"
-    ok "client $name -> $ip (scan the QR above, or import wg-$name.conf)"
-}
-
-client_revoke() {
-    name=$1
-    [ -n "$name" ] || die "usage: setup.sh client revoke NAME"
-    cd /etc/wireguard
-    grep -qx "# $name" wg0.conf || die "no client $name"
-    awk -v n="# $name" '
-        /^\[Peer\]/ { if (blk != "" && !drop) printf "%s", blk; blk = $0 "\n"; drop = 0; inpeer = 1; next }
-        inpeer      { blk = blk $0 "\n"; if ($0 == n) drop = 1; next }
-                    { print }
-        END         { if (blk != "" && !drop) printf "%s", blk }
-    ' wg0.conf > wg0.conf.new
-    mv wg0.conf.new wg0.conf && chmod 600 wg0.conf
-    rm -f clients/"$name".*
-    wg syncconf wg0 <(wg-quick strip wg0)
-    ok "client $name revoked"
-}
-
-client_list() {
-    awk '/^# / {n=substr($0,3)} /^AllowedIPs/ {print "  " n "\t" $3}' /etc/wireguard/wg0.conf
-}
-
 # ---- main ----------------------------------------------------------
 case "${1:-all}" in
     network)  phase_network ;;
     system)   phase_system ;;
-    duckdns)  phase_duckdns ;;
-    wireguard) phase_wireguard ;;
+    wifi)
+        case "${2:-}" in
+            "")     phase_wifi ;;
+            add)    wifi_add "${3:-}" "${4:-}"; exit 0 ;;
+            forget) wifi_forget "${3:-}"; exit 0 ;;
+            list)   wifi_list; exit 0 ;;
+            *)      die "usage: setup.sh wifi [add SSID [PASSWORD] | forget SSID | list]" ;;
+        esac
+        ;;
+    tailscale) phase_tailscale ;;
     firewall) phase_firewall ;;
     poweroff) hdr "Shutting down - wait for the activity to stop, then unplug"; systemctl poweroff; exit 0 ;;
     all)
         phase_network
         phase_system
-        phase_duckdns
-        phase_wireguard
+        phase_wifi
+        phase_tailscale
         phase_firewall
         ;;
-    client)
-        case "${2:-}" in
-            add)    client_add "${3:-}" "${4:-}" ;;
-            revoke) client_revoke "${3:-}" ;;
-            list)   client_list ;;
-            *)      die "usage: setup.sh client add NAME [IP] | revoke NAME | list" ;;
-        esac
-        exit 0
-        ;;
-    *) die "usage: setup.sh [network|system|duckdns|wireguard|firewall|all|poweroff] | client ..." ;;
+    *) die "usage: setup.sh [network|system|wifi|tailscale|firewall|all|poweroff] | wifi add|forget|list ..." ;;
 esac
 
 if [ "$NEED_REBOOT" = 1 ]; then

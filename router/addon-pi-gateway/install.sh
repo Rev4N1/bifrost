@@ -1,23 +1,24 @@
 #!/bin/sh
 # ========================================================
 # addon-pi-gateway installer - the router side of the Pi
-# WireGuard gateway (pi/README.md). Runs ON the main router;
+# Tailscale node (pi/README.md). Runs ON the main router;
 # from the PC:  ./deploy.sh pi-gateway [--usb]
 #
 # What it owns on the router, and nothing else:
 #   - USB-ethernet drivers so the Pi shows up as $PI_PORT
 #   - $PI_PORT as a br-lan port
 #   - the Pi's static DHCP lease (section pigw_<PI_NAME>)
-#   - the WAN -> Pi WireGuard port forward (section pigw_wireguard)
+# Tailscale needs no port forward; the one older versions made
+# (pigw_wireguard) is removed.
 #
 # Idempotent: re-run after every flash or after editing
-# bifrost.conf (deploy.sh writes pi-gateway.conf from it). Any other lease for the same MAC/IP, or other
-# port forward of the same WAN port (e.g. one made by hand in
-# LuCI), is replaced so there is exactly one of each.
+# bifrost.conf (deploy.sh writes pi-gateway.conf from it). Any
+# other lease for the same MAC/IP is replaced so there is
+# exactly one.
 #
 #   install.sh              install / update
 #   install.sh --check      show state, test reachability
-#   install.sh --uninstall  remove leases, port forward, bridge port
+#   install.sh --uninstall  remove lease, bridge port
 # ========================================================
 
 SRC_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -139,25 +140,8 @@ setup_leases() {
     done
 }
 
-setup_forward() {
-    hdr "Port forward"
-    for S in $(sections firewall redirect); do
-        [ "$S" = "$FWD_SEC" ] && continue
-        [ "$(uci -q get "firewall.$S.src_dport")" = "$WG_PORT" ] || continue
-        uci delete "firewall.$S"
-        ok "replaced existing port forward $S"
-    done
-    uci set "firewall.$FWD_SEC=redirect"
-    uci set "firewall.$FWD_SEC.name=pi-wireguard"
-    uci set "firewall.$FWD_SEC.target=DNAT"
-    uci set "firewall.$FWD_SEC.family=ipv4"
-    uci set "firewall.$FWD_SEC.proto=udp"
-    uci set "firewall.$FWD_SEC.src=wan"
-    uci set "firewall.$FWD_SEC.src_dport=$WG_PORT"
-    uci set "firewall.$FWD_SEC.dest=lan"
-    uci set "firewall.$FWD_SEC.dest_ip=$PI_IP"
-    uci set "firewall.$FWD_SEC.dest_port=$WG_PORT"
-    ok "wan udp/$WG_PORT -> $PI_IP:$WG_PORT"
+drop_old_forward() {
+    uci -q delete "firewall.$FWD_SEC" && ok "removed the old WireGuard port forward"
 }
 
 apply() {
@@ -197,21 +181,7 @@ check() {
         [ -n "$_live" ] && say "         live lease: $_live"
     done
 
-    _d=$(uci -q get "firewall.$FWD_SEC.dest_ip")
-    [ "$_d" = "$PI_IP" ] && ok "port forward udp/$WG_PORT -> $_d" || warn "port forward missing"
-
     ping -c1 -W2 "$PI_IP" >/dev/null 2>&1 && ok "Pi answers at $PI_IP" || warn "Pi not answering at $PI_IP"
-
-    # Inbound WireGuard only works with a real public WAN address.
-    _wan=$(ifstatus wan 2>/dev/null | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)
-    case "$_wan" in
-        "")                                   warn "no WAN IPv4 address" ;;
-        10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*)
-                                              warn "WAN $_wan is private - inbound WireGuard can't work" ;;
-        100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*)
-                                              warn "WAN $_wan is CGNAT - inbound WireGuard can't work" ;;
-        *)                                    ok "WAN address is public" ;;
-    esac
 }
 
 uninstall() {
@@ -219,7 +189,7 @@ uninstall() {
     for S in $(sections dhcp host); do
         case "$S" in pigw_*) uci delete "dhcp.$S"; ok "removed lease $S" ;; esac
     done
-    uci -q delete "firewall.$FWD_SEC" && ok "removed port forward"
+    drop_old_forward
     uci -q del_list "network.$(br_lan_section).ports=$PI_PORT" && ok "removed $PI_PORT from br-lan"
     apply
     say ""
@@ -235,7 +205,7 @@ case "$1" in
         install_pkgs
         setup_bridge
         setup_leases
-        setup_forward
+        drop_old_forward
         apply
         sleep 3
         check

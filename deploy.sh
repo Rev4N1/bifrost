@@ -8,14 +8,16 @@
 #   ./deploy.sh main                  main router only
 #   ./deploy.sh ap <hostname> [--fresh]   one dumb AP (--fresh: still at factory 192.168.1.1)
 #   ./deploy.sh wifi-watch            Telegram addon
+#   ./deploy.sh wireguard             WireGuard VPN server on the main router
+#   ./deploy.sh wireguard client add NAME [IP] | revoke NAME | list
 #   ./deploy.sh pi-gateway [--usb]    router side of the Pi (records its MACs if needed)
 #
 #   ./deploy.sh sdcard                turn on USB gadget mode on a freshly flashed Pi card
-#   ./deploy.sh pi [--usb] [step]     run pi/setup.sh on the Pi (all|network|system|duckdns|
-#                                     wireguard|firewall|poweroff; default: all)
-#   ./deploy.sh pi client add NAME [IP] | revoke NAME | list
+#   ./deploy.sh pi [--usb] [step]     run pi/setup.sh on the Pi (all|network|system|wifi|
+#                                     tailscale|firewall|poweroff; default: all)
+#   ./deploy.sh pi [--usb] wifi add SSID [PASSWORD] | forget SSID | list
 #
-#   --usb: the Pi is plugged into this PC (first setup), not the router.
+#   --usb: the Pi is plugged into this PC, not the router.
 # Every target is safe to re-run.
 # ========================================================
 set -euo pipefail
@@ -32,16 +34,16 @@ NET_VARS="SSID WPA_PSK COUNTRY MOBILITY_DOMAIN BW24 BW5 TXPOWER_24 MAIN_HOSTNAME
           ROOT_PASSWORD ZONENAME TIMEZONE NTP_SERVER"
 WATCH_VARS="BOT_TOKEN CHAT_ID PEOPLE PEOPLE_MAC AP_HOSTS POLL_INTERVAL MISSES_TO_LEAVE
             CONFIRM_ROUNDS CONFIRM_GAP ARPING_TRIES INITIAL_SETTLE AP_FAIL_GRACE"
-GATEWAY_VARS="PI_NAME PI_MAC PI_IP PI_PORT WG_PORT"
-PI_VARS="PI_IP LAN_SUBNET WG_PORT VPN_SUBNET CLIENT_DNS DUCKDNS_DOMAIN DUCKDNS_TOKEN
-         VPN_LAN_ACCESS PI_MAC HOST_MAC"
+WG_VARS="WG_PORT VPN_SUBNET CLIENT_DNS VPN_LAN_ACCESS DUCKDNS_DOMAIN DUCKDNS_TOKEN"
+GATEWAY_VARS="PI_NAME PI_MAC PI_IP PI_PORT"
+PI_VARS="PI_NAME COUNTRY TS_AUTHKEY VPN_LAN_ACCESS PI_MAC HOST_MAC"
 
 say() { printf '\n>>> %s\n' "$*"; }
 die() { printf 'deploy: %s\n' "$*" >&2; exit 1; }
 
-usage() { sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+usage() { sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 case "${1:-}" in
-    routers|main|ap|wifi-watch|pi-gateway|pi|sdcard) ;;
+    routers|main|ap|wifi-watch|wireguard|pi-gateway|pi|sdcard) ;;
     *) usage ;;
 esac
 
@@ -50,7 +52,7 @@ esac
 if [ "$1" != sdcard ]; then
     [ -f "$CONF" ] || die "$CONF is missing: cp -n $CONF.example $CONF, then fill it in"
     set +u; . "./$CONF"; set -u
-    : "${APS:=}" "${BOT_TOKEN:=}" "${PI_MAC:=}" "${HOST_MAC:=}" "${PI_USER:=}" "${PI_PASSWORD:=}" "${ROOT_PASSWORD:=}"
+    : "${APS:=}" "${BOT_TOKEN:=}" "${WG_PORT:=}" "${PI_NAME:=}" "${PI_MAC:=}" "${HOST_MAC:=}" "${PI_USER:=}" "${PI_PASSWORD:=}" "${ROOT_PASSWORD:=}"
     PI_PORT=usb0
     AP_HOSTS=""
     for _e in $APS; do _r=${_e#*,}; AP_HOSTS="${AP_HOSTS:+$AP_HOSTS }${_r%%,*}"; done
@@ -148,11 +150,16 @@ ap_ip() {
     die "no AP named '$1' in APS (have: $(for e in $APS; do printf '%s ' "${e%%,*}"; done))"
 }
 
-# pi_login [--usb] - user@address of the Pi, with the deploy key trusted
+# pi_login [--usb] - user@address of the Pi, with the deploy key trusted.
+# On USB it's at PI_USB_IP until "setup.sh network" makes usb0 a DHCP
+# client; after that, a PC finds it by name over IPv6 link-local.
 pi_login() {
     require PI_USER PI_IP
     local addr=$PI_IP
-    [ "${1:-}" = --usb ] && addr=$PI_USB_IP
+    if [ "${1:-}" = --usb ]; then
+        addr=$PI_USB_IP
+        port_open "$addr" || addr=$PI_NAME.local
+    fi
     trust "$PI_USER@$addr" '$HOME/.ssh/authorized_keys' "$PI_PASSWORD" >&2
     echo "$PI_USER@$addr"
 }
@@ -196,6 +203,21 @@ cmd_wifi_watch() {
         "AP_PASSWORD=$(sq "$ROOT_PASSWORD") sh /tmp/addon-wifi-watch/install.sh"
 }
 
+cmd_wireguard() {
+    require WG_PORT VPN_SUBNET CLIENT_DNS
+    local dir
+    dir=$(stage router/addon-wireguard wireguard.conf "$WG_VARS")
+    if [ "${1:-}" = client ]; then
+        router_run "$GW_IP" "$dir" "sh /tmp/addon-wireguard/install.sh $(printf '%q ' "$@")"
+        if [ "${2:-}" = add ] && [ -n "${3:-}" ]; then
+            scp -O -q "${SSH_OPTS[@]}" "root@$GW_IP:/tmp/wg-$3.conf" ~/                 && ssh "${SSH_OPTS[@]}" "root@$GW_IP" "rm -f /tmp/wg-$3.conf"                 && say "client config saved to ~/wg-$3.conf (has the private key)"                 && echo "    Fedora: sudo nmcli connection import type wireguard file ~/wg-$3.conf"                 && echo "    Other:  import it in the WireGuard app, then delete the file"
+        fi
+        return
+    fi
+    say "wireguard addon on $GW_IP"
+    router_run "$GW_IP" "$dir" "sh /tmp/addon-wireguard/install.sh"
+}
+
 # Record the Pi's pinned MACs in bifrost.conf (PI_MAC for the router's
 # lease, both for giving a reflashed Pi the same ones).
 record_pi_macs() {
@@ -214,7 +236,7 @@ cmd_pi_gateway() {
     if [ "${1:-}" = --usb ] || [ -z "$PI_MAC" ]; then
         say "reading the Pi's MACs"; record_pi_macs "$@"
     fi
-    require PI_MAC PI_IP WG_PORT
+    require PI_MAC PI_IP
     say "pi-gateway addon on $GW_IP"
     router_run "$GW_IP" "$(stage router/addon-pi-gateway pi-gateway.conf "$GATEWAY_VARS")" \
         "sh /tmp/addon-pi-gateway/install.sh"
@@ -225,6 +247,7 @@ cmd_routers() {
     cmd_main
     for e in $APS; do cmd_ap "${e%%,*}"; done
     if [ -n "$BOT_TOKEN" ]; then cmd_wifi_watch; else echo "(BOT_TOKEN empty - skipping wifi-watch)"; fi
+    if [ -n "$WG_PORT" ]; then cmd_wireguard; else echo "(WG_PORT empty - skipping wireguard)"; fi
     if [ -n "$PI_MAC" ]; then cmd_pi_gateway; else echo "(PI_MAC empty - skipping pi-gateway)"; fi
     say "all routers done"
 }
@@ -276,15 +299,6 @@ cmd_pi() {
         d=\$(mktemp -d) && chmod 700 \"\$d\" &&
         echo $s | base64 -d > \"\$d/setup.sh\" && echo $c | base64 -d > \"\$d/pi.conf\" &&
         $unlock sudo bash \"\$d/setup.sh\" $args; rc=\$?; rm -rf \"\$d\"; exit \$rc" || true
-
-    if [ "${1:-}" = client ] && [ "${2:-}" = add ] && [ -n "${3:-}" ]; then
-        local name=$3
-        scp -q "${SSH_OPTS[@]}" "$login:wg-$name.conf" ~/ \
-            && ssh "${SSH_OPTS[@]}" "$login" "rm -f wg-$name.conf" \
-            && say "client config saved to ~/wg-$name.conf (has the private key)" \
-            && echo "    Fedora: sudo nmcli connection import type wireguard file ~/wg-$name.conf" \
-            && echo "    Other:  import it in the WireGuard app, then delete the file"
-    fi
 }
 
 case "$1" in
@@ -292,6 +306,7 @@ case "$1" in
     main)       cmd_main ;;
     ap)         shift; cmd_ap "$@" ;;
     wifi-watch) cmd_wifi_watch ;;
+    wireguard)  shift; cmd_wireguard "$@" ;;
     pi-gateway) shift; cmd_pi_gateway "$@" ;;
     sdcard)     cmd_sdcard ;;
     pi)         shift; cmd_pi "$@" ;;

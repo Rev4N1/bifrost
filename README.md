@@ -1,17 +1,21 @@
 # Bifrost
 
 The bridge to and across your home network, as code. OpenWrt routers (one main
-router plus dumb APs over a wired backhaul), an optional Raspberry Pi Zero 2 W
-as WireGuard gateway, and an optional Telegram home/away bot, all deployed from
-your PC with one command. Every step is safe to re-run, so after a firmware
+router plus dumb APs over a wired backhaul), an optional WireGuard VPN on the
+main router, an optional Raspberry Pi Zero 2 W as a portable Tailscale exit
+node, and an optional Telegram home/away bot, all deployed from your PC with
+one command. Every step is safe to re-run, so after a firmware
 flash you just run it again.
 
 - **Routers:** one SSID everywhere with 802.11r/k/v/w fast roaming, `usteer`
   steering devices to the best AP, non-overlapping channels, lower 2.4 GHz
   power, hardware NAT offload, packet steering, and optional UPnP.
-- **Pi:** a WireGuard endpoint on the main router's USB port, locked down with
-  nftables, kept reachable by DuckDNS, and stripped down to what it uses, for
-  free RAM and SD-card life.
+- **WireGuard:** a VPN server on the main router, kept reachable by DuckDNS.
+  VPN clients get the internet plus only the LAN services you list. All of it
+  is editable in LuCI.
+- **Pi:** a Tailscale exit node and subnet router on the main router's USB
+  port, or on any Wi-Fi when you take it with you. Locked down with nftables,
+  and stripped down to what it uses, for free RAM and SD-card life.
 - **Telegram bot:** tells a chat when someone's phone leaves or comes home.
 
 ## 1. What you need
@@ -33,7 +37,7 @@ cp -n bifrost.conf.example bifrost.conf
 ```
 
 Open it and go top to bottom; it's ordered the way you'd fill it in. Replace
-every `CHANGE_ME`. Parts 5 (Telegram) and 6 (Pi) are optional and stay off
+every `CHANGE_ME`. Parts 5 (Telegram), 7 (WireGuard) and 8 (Pi) are optional and stay off
 while empty. Nothing about your layout is hard-coded: part 4 lists each AP as
 `hostname,ip,ch24,ch5`.
 
@@ -54,8 +58,13 @@ addons whose part of the config is filled in. Each piece also runs on its own:
 ./deploy.sh main
 ./deploy.sh ap <hostname>
 ./deploy.sh wifi-watch
+./deploy.sh wireguard
 ./deploy.sh pi-gateway
 ```
+
+**WireGuard clients:** `./deploy.sh wireguard client add <name>` prints a QR
+code, or add peers in LuCI. See
+[router/addon-wireguard](router/addon-wireguard/README.md).
 
 **A factory-fresh AP** boots at 192.168.1.1, the same address as the main
 router. Plug only your PC into it and run `./deploy.sh ap <hostname> --fresh`.
@@ -89,7 +98,8 @@ deploy.sh                 the one command you run on the PC (./deploy.sh for hel
 router/
   setup/                  main router + dumb APs: network, wireless, dhcp, firewall
   addon-wifi-watch/       the Telegram bot (own README)
-  addon-pi-gateway/       the router side of the Pi: usb0, static lease, port forward
+  addon-wireguard/        WireGuard VPN + DuckDNS on the main router, managed in LuCI
+  addon-pi-gateway/       the router side of the Pi: usb0, static lease
 pi/                       the Pi itself: setup.sh (own README)
 ```
 
