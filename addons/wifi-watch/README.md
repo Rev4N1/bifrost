@@ -5,7 +5,7 @@ the network, watching the main router and every dumb AP. Its settings are
 part 5 of `bifrost.conf`; the APs it watches come from `APS` in part 4.
 
 **This is an addon.** It never touches wireless, network, dhcp or firewall
-config. `../setup/` owns those, and nothing here duplicates or contradicts
+config. `../../setup/` owns those, and nothing here duplicates or contradicts
 them. The only change it makes to a dumb AP is appending one public key to
 `/etc/dropbear/authorized_keys` so it can be asked which stations are
 associated.
@@ -72,8 +72,8 @@ After a deploy, the installer stays in `/tmp` on the router until its next
 reboot:
 
 ```bash
-ssh root@192.168.1.1 sh /tmp/addon-wifi-watch/install.sh --check      # diagnose
-ssh root@192.168.1.1 sh /tmp/addon-wifi-watch/install.sh --uninstall  # remove (leaves the SSH key)
+ssh root@192.168.1.1 sh /tmp/wifi-watch/install.sh --check      # diagnose
+ssh root@192.168.1.1 sh /tmp/wifi-watch/install.sh --uninstall  # remove (leaves the SSH key)
 ```
 
 ## Operating

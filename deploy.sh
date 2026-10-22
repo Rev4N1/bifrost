@@ -131,7 +131,7 @@ require_net() { require SSID WPA_PSK COUNTRY ROOT_PASSWORD ZONENAME TIMEZONE GW_
 cmd_main() {
     require_net; require MAIN_HOSTNAME WAN_DEVICE PPPOE_USER PPPOE_PASS MAIN_CH24 MAIN_CH5
     say "main router $GW_IP"
-    router_run "$GW_IP" "$(stage router/setup network.conf "$NET_VARS")" \
+    router_run "$GW_IP" "$(stage setup network.conf "$NET_VARS")" \
         "sh /tmp/setup/main-router.sh" || true   # it reboots
     wait_reboot "$GW_IP" "$GW_IP"
 }
@@ -150,7 +150,7 @@ cmd_ap() {
         echo "    says it's waiting for internet, plug it into the main LAN."
     fi
     say "dumb AP $name ($ip)"
-    router_run "$target" "$(stage router/setup network.conf "$NET_VARS")" \
+    router_run "$target" "$(stage setup network.conf "$NET_VARS")" \
         "sh /tmp/setup/dumb-ap.sh $name" || true   # it reboots
     wait_reboot "$target" "$ip"
 }
@@ -159,16 +159,16 @@ cmd_wifi_watch() {
     require BOT_TOKEN CHAT_ID PEOPLE
     say "wifi-watch addon on $GW_IP"
     # AP_PASSWORD lets it authorize its own key on the APs without asking.
-    router_run "$GW_IP" "$(stage router/addon-wifi-watch wifi-watch.conf "$WATCH_VARS")" \
-        "AP_PASSWORD=$(sq "$ROOT_PASSWORD") sh /tmp/addon-wifi-watch/install.sh"
+    router_run "$GW_IP" "$(stage addons/wifi-watch wifi-watch.conf "$WATCH_VARS")" \
+        "AP_PASSWORD=$(sq "$ROOT_PASSWORD") sh /tmp/wifi-watch/install.sh"
 }
 
 cmd_wireguard() {
     require WG_PORT VPN_SUBNET CLIENT_DNS
     local dir
-    dir=$(stage router/addon-wireguard wireguard.conf "$WG_VARS")
+    dir=$(stage addons/wireguard wireguard.conf "$WG_VARS")
     if [ "${1:-}" = client ]; then
-        router_run "$GW_IP" "$dir" "sh /tmp/addon-wireguard/install.sh $(printf '%q ' "$@")"
+        router_run "$GW_IP" "$dir" "sh /tmp/wireguard/install.sh $(printf '%q ' "$@")"
         if [ "${2:-}" = add ] && [ -n "${3:-}" ]; then
             pw scp -O -q "${SSH_OPTS[@]}" "root@$GW_IP:/tmp/wg-$3.conf" ~/ \
                 && pw ssh "${SSH_OPTS[@]}" "root@$GW_IP" "rm -f /tmp/wg-$3.conf" \
@@ -179,7 +179,7 @@ cmd_wireguard() {
         return
     fi
     say "wireguard addon on $GW_IP"
-    router_run "$GW_IP" "$dir" "sh /tmp/addon-wireguard/install.sh"
+    router_run "$GW_IP" "$dir" "sh /tmp/wireguard/install.sh"
 }
 
 cmd_routers() {

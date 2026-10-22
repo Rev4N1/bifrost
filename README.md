@@ -8,7 +8,8 @@ just run it again.
 
 - **Routers:** one SSID everywhere with 802.11r/k/v/w fast roaming, `usteer`
   steering devices to the best AP, non-overlapping channels, lower 2.4 GHz
-  power, hardware NAT offload, packet steering, and optional UPnP.
+  power, hardware NAT offload, packet steering, a 1000-name DNS cache, and
+  optional UPnP.
 - **WireGuard:** a VPN server on the main router, kept reachable by DuckDNS.
   VPN clients get the internet plus only the LAN services you list. All of it
   is editable in LuCI.
@@ -73,7 +74,7 @@ From factory-fresh routers, in this order:
    By hand:
 
    ```powershell
-   Write-RouterConf router/setup/network.conf $net; ssh-keygen -R 192.168.1.1; scp -O -r router/setup root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/setup/main-router.sh"
+   Write-RouterConf setup/network.conf $net; ssh-keygen -R 192.168.1.1; scp -O -r setup root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/setup/main-router.sh"
    ```
 
 2. **Each AP.** A factory-fresh AP boots at 192.168.1.1, the same address as
@@ -87,7 +88,7 @@ From factory-fresh routers, in this order:
    `192.168.1.1`):
 
    ```powershell
-   Write-RouterConf router/setup/network.conf $net; ssh-keygen -R 192.168.1.1; scp -O -r router/setup root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/setup/dumb-ap.sh <hostname>"
+   Write-RouterConf setup/network.conf $net; ssh-keygen -R 192.168.1.1; scp -O -r setup root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/setup/dumb-ap.sh <hostname>"
    ```
 
    It moves to its own IP mid-run (the session freezes, that's fine). When it
@@ -103,7 +104,7 @@ From factory-fresh routers, in this order:
    once):
 
    ```powershell
-   $aps = (Select-String -Path bifrost.conf -Pattern '^APS="([^"]*)"').Matches[0].Groups[1].Value; $apHosts = ($aps -split '\s+' | Where-Object { $_ } | ForEach-Object { ($_ -split ',')[1] }) -join ' '; Write-RouterConf router/addon-wifi-watch/wifi-watch.conf $watch "AP_HOSTS=""$apHosts"""; scp -O -r router/addon-wifi-watch root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/addon-wifi-watch/install.sh"
+   $aps = (Select-String -Path bifrost.conf -Pattern '^APS="([^"]*)"').Matches[0].Groups[1].Value; $apHosts = ($aps -split '\s+' | Where-Object { $_ } | ForEach-Object { ($_ -split ',')[1] }) -join ' '; Write-RouterConf addons/wifi-watch/wifi-watch.conf $watch "AP_HOSTS=""$apHosts"""; scp -O -r addons/wifi-watch root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/wifi-watch/install.sh"
    ```
 
    WireGuard:
@@ -115,7 +116,7 @@ From factory-fresh routers, in this order:
    By hand:
 
    ```powershell
-   Write-RouterConf router/addon-wireguard/wireguard.conf $wg; scp -O -r router/addon-wireguard root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/addon-wireguard/install.sh"
+   Write-RouterConf addons/wireguard/wireguard.conf $wg; scp -O -r addons/wireguard root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/wireguard/install.sh"
    ```
 
 From then on, one command re-applies everything: the main router, each AP
@@ -136,16 +137,16 @@ above, in the same order.
 By hand (after the WireGuard block above, if the router rebooted since):
 
 ```powershell
-ssh -t root@192.168.1.1 "sh /tmp/addon-wireguard/install.sh client add <name>"; scp -O root@192.168.1.1:/tmp/wg-<name>.conf .; ssh root@192.168.1.1 "rm -f /tmp/wg-<name>.conf"
+ssh -t root@192.168.1.1 "sh /tmp/wireguard/install.sh client add <name>"; scp -O root@192.168.1.1:/tmp/wg-<name>.conf .; ssh root@192.168.1.1 "rm -f /tmp/wg-<name>.conf"
 ```
 
-See [router/addon-wireguard](router/addon-wireguard/README.md).
+See [addons/wireguard](addons/wireguard/README.md).
 
 **By hand, when you're done,** delete the configs the blocks wrote. They hold
 passwords, and git ignores them, so nothing else will:
 
 ```powershell
-Remove-Item router/setup/network.conf, router/addon-wifi-watch/wifi-watch.conf, router/addon-wireguard/wireguard.conf -ErrorAction SilentlyContinue
+Remove-Item setup/network.conf, addons/wifi-watch/wifi-watch.conf, addons/wireguard/wireguard.conf -ErrorAction SilentlyContinue
 ```
 
 ## 4. After every router flash
@@ -173,10 +174,10 @@ New-Item -ItemType Directory -Force ~\router-backups | Out-Null; foreach ($ip in
 ```
 bifrost.conf.example      every setting, in the order you fill them in
 deploy.sh                 the one command you run on the PC (./deploy.sh for help)
-router/
-  setup/                  main router + dumb APs: network, wireless, dhcp, firewall
-  addon-wifi-watch/       the Telegram bot (own README)
-  addon-wireguard/        WireGuard VPN + DuckDNS on the main router, managed in LuCI
+setup/                    main router + dumb APs: network, wireless, dhcp, firewall
+addons/
+  wifi-watch/             the Telegram bot (own README)
+  wireguard/              WireGuard VPN + DuckDNS on the main router, managed in LuCI
 ```
 
 - **Each device only gets its own part of `bifrost.conf`.** `deploy.sh` writes
@@ -186,7 +187,7 @@ router/
   `sshpass` installed it types it for you; without it, SSH asks (once per
   step on Linux, where the connection is reused for a minute). A
   factory-fresh router has no password, so it asks nothing.
-- **Separate pieces.** `router/setup/` never references an addon, and the
+- **Separate pieces.** `setup/` never references an addon, and the
   addons never touch what it owns, so each one runs on its own, in any order.
 - **Host keys aren't pinned.** Every flash gives a router a new SSH host key,
   so pinning would break every run. `deploy.sh` only talks to your own devices

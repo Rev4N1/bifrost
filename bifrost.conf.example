@@ -69,7 +69,7 @@ CHAT_ID=""                  # group or user chat id
 PEOPLE=""                   # "<DHCP hostname part>=<name>", e.g. "Pixel-8=Alice iPhone-Bob=Bob"
 PEOPLE_MAC=""               # for devices with no DHCP hostname: "aa:bb:cc:dd:ee:ff=Alice"
 
-# Tuning (router/addon-wifi-watch/README.md explains each)
+# Tuning (addons/wifi-watch/README.md explains each)
 POLL_INTERVAL=30            # seconds between checks
 MISSES_TO_LEAVE=4           # failed checks in a row before "left"
 CONFIRM_ROUNDS=3            # extra checks before sending "left"
@@ -80,7 +80,7 @@ AP_FAIL_GRACE=10            # checks an AP may be unreachable before it's ignore
 
 
 # ======== 6. WireGuard VPN on the main router (optional: off while WG_PORT is empty) ========
-# Seeds the router once (router/addon-wireguard/README.md); after the
+# Seeds the router once (addons/wireguard/README.md); after the
 # first deploy, edit it in LuCI and these values are no longer read.
 
 WG_PORT="51820"

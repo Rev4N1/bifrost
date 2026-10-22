@@ -1,6 +1,6 @@
 #!/bin/sh
 # ========================================================
-# addon-wireguard installer - a WireGuard VPN server on the
+# wireguard addon installer - a WireGuard VPN server on the
 # main router, managed in LuCI. Runs ON the main router;
 # from the PC:  ./deploy.sh wireguard
 #

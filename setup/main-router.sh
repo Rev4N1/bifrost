@@ -39,6 +39,8 @@ ok "WAN pppoe on $WAN_DEVICE, LAN $GW_IP"
 # ---- DNS/DHCP: dnsmasq serves DHCPv4 + DNS, no IPv6 RA/DHCPv6 -----
 hdr "DHCP/DNS"
 uci set dhcp.@dnsmasq[0].edns0='1'
+# 1000 cached names instead of 150: repeat lookups never leave the router.
+uci set dhcp.@dnsmasq[0].cachesize='1000'
 uci -q delete dhcp.@dnsmasq[0].server
 for D in $DNS_LIST; do uci add_list dhcp.@dnsmasq[0].server="$D"; done
 uci -q delete dhcp.lan.ra
