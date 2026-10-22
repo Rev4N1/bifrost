@@ -15,7 +15,6 @@
 # Your LAN (the main router is the gateway)
 GW_IP="192.168.1.1"
 NETMASK="255.255.255.0"
-LAN_SUBNET="192.168.1.0/24"
 
 # Where you are: legal Wi-Fi channels and power, and the clock
 COUNTRY="CHANGE_ME"         # ISO 3166 code, e.g. DE, FR, US
@@ -84,7 +83,7 @@ AP_FAIL_GRACE=10            # checks an AP may be unreachable before it's ignore
 # first deploy, edit it in LuCI and these values are no longer read.
 
 WG_PORT="51820"
-VPN_SUBNET="10.7.0.0/24"    # the router is .1, clients get .2 and up
+VPN_SUBNET="10.7.0.0/24"    # a /24: the router is .1, clients get .2 and up
 CLIENT_DNS="9.9.9.9, 1.1.1.1"
 VPN_LAN_ACCESS=""           # LAN services VPN clients may reach, "ip:proto:port", e.g. "192.168.1.20:tcp:3389"
                             # (everything else on the LAN is blocked; give those hosts static IPs)

@@ -26,7 +26,7 @@ FACTORY_IP=192.168.1.1
 NET_VARS="SSID WPA_PSK COUNTRY MOBILITY_DOMAIN BW24 BW5 TXPOWER_24 MAIN_HOSTNAME GW_IP NETMASK
           WAN_DEVICE PPPOE_USER PPPOE_PASS MAIN_CH24 MAIN_CH5 DNS_LIST DHCP_DNS_OPTION UPNP APS
           ROOT_PASSWORD ZONENAME TIMEZONE NTP_SERVER"
-WATCH_VARS="BOT_TOKEN CHAT_ID PEOPLE PEOPLE_MAC AP_HOSTS POLL_INTERVAL MISSES_TO_LEAVE
+WATCH_VARS="BOT_TOKEN CHAT_ID PEOPLE PEOPLE_MAC AP_IPS POLL_INTERVAL MISSES_TO_LEAVE
             CONFIRM_ROUNDS CONFIRM_GAP ARPING_TRIES INITIAL_SETTLE AP_FAIL_GRACE"
 WG_VARS="WG_PORT VPN_SUBNET CLIENT_DNS VPN_LAN_ACCESS DUCKDNS_DOMAIN DUCKDNS_TOKEN"
 
@@ -61,10 +61,10 @@ set +u
 . "./$CONF"
 set -u
 : "${APS:=}" "${BOT_TOKEN:=}" "${WG_PORT:=}" "${ROOT_PASSWORD:=}"
-[ "$(stat -c %a "$CONF" 2>/dev/null || printf 600)" = 600 ] \
+[ "$(stat -c %a "$CONF")" = 600 ] \
     || warn "chmod 600 $CONF (it holds every password)"
-AP_HOSTS=""
-for _e in $APS; do _r=${_e#*,}; AP_HOSTS="${AP_HOSTS:+$AP_HOSTS }${_r%%,*}"; done
+AP_IPS=""
+for _e in $APS; do _r=${_e#*,}; AP_IPS="${AP_IPS:+$AP_IPS }${_r%%,*}"; done
 
 # require VAR... - each must be set and not CHANGE_ME
 require() {
@@ -142,6 +142,9 @@ wait_up() {
 # already be), then for it to come back.
 wait_reboot() {
     say "waiting for $2 to come back"
+    # A reboot leaves a dead control socket behind; drop it so the next
+    # connection doesn't try to reuse a master that is gone.
+    [ -n "${HOME:-}" ] && rm -f "$HOME/.ssh/cm-root@$1:22" "$HOME/.ssh/cm-root@$2:22" 2>/dev/null || true
     for _ in $(seq 45); do port_open "$1" || break; sleep 2; done
     wait_up "$2"
 }
@@ -150,6 +153,10 @@ wait_reboot() {
 # The copy logs in first, so a wrong password or an unreachable router
 # stops here (exit 2), before anything runs or is mistaken for a reboot.
 router_run() {
+    # /tmp survives until a reboot. scp -r into an existing /tmp/setup
+    # nests a second copy and leaves the old script in place, so clear the
+    # name first. Failure is fine: the scp below reports it.
+    pw ssh "${SSH_OPTS[@]}" "root@$1" "rm -rf /tmp/${2##*/}" >/dev/null 2>&1 || true
     pw scp -O -q -r "${SSH_OPTS[@]}" "$2" "root@$1:/tmp/" \
         || { warn "couldn't copy to $1 - wrong ROOT_PASSWORD, or not reachable?"; return 2; }
     pw ssh -t "${SSH_OPTS[@]}" "root@$1" "$3"
@@ -165,7 +172,12 @@ run_step() {
     router_run "$1" "$2" "$3" || rc=$?
     case "$rc" in
         0)       say "  no config change - no reboot" ;;
-        100|255) wait_reboot "$1" "$4" ;;
+        100)     wait_reboot "$1" "$4" ;;
+        255)     # The IP moved mid-run. The script keeps going (it ignores
+                 # HUP/PIPE), but its new SSH port answers before it has
+                 # finished; remember it so the addons don't race it.
+                 MOVED=1
+                 wait_reboot "$1" "$4" ;;
         *)       die "setup failed on $1 (exit $rc)" ;;
     esac
 }
@@ -190,18 +202,34 @@ require_net() {
 
 cmd_main() {
     require_net; require MAIN_HOSTNAME WAN_DEVICE PPPOE_USER PPPOE_PASS MAIN_CH24 MAIN_CH5
+    local h
     if port_open "$GW_IP"; then
+        h=$(hostname_at "$GW_IP")
+        # A configured dumb AP at the main address is the one mix-up that
+        # would flatten the network; refuse it by name.
+        for _e in $APS; do
+            [ -n "$h" ] && [ "$h" = "${_e%%,*}" ] \
+                && die "$GW_IP answered as AP ${_e%%,*} - use ./deploy.sh ap ${_e%%,*}, not the main deploy"
+        done
         say "main router $GW_IP"
         run_step "$GW_IP" "$(stage setup network.conf "$NET_VARS")" \
             "sh /tmp/setup/main-router.sh" "$GW_IP"
         return 0
     fi
-    # A factory-reset main router still sits at 192.168.1.1.
-    if [ "$GW_IP" != "$FACTORY_IP" ] && [ "$(hostname_at "$FACTORY_IP")" = OpenWrt ]; then
-        say "main router is factory-fresh at $FACTORY_IP"
-        run_step "$FACTORY_IP" "$(stage setup network.conf "$NET_VARS")" \
-            "sh /tmp/setup/main-router.sh" "$GW_IP"
-        return 0
+    # A factory-reset main router still sits at 192.168.1.1. Don't reuse a
+    # pooled connection here: it could be an AP from an earlier run.
+    if [ "$GW_IP" != "$FACTORY_IP" ]; then
+        local saved_opts=("${SSH_OPTS[@]}")
+        SSH_OPTS=(-o ControlPath=none "${SSH_OPTS[@]}")
+        h=$(hostname_at "$FACTORY_IP")
+        if [ "$h" = OpenWrt ]; then
+            say "main router is factory-fresh at $FACTORY_IP"
+            run_step "$FACTORY_IP" "$(stage setup network.conf "$NET_VARS")" \
+                "sh /tmp/setup/main-router.sh" "$GW_IP"
+            SSH_OPTS=("${saved_opts[@]}")
+            return 0
+        fi
+        SSH_OPTS=("${saved_opts[@]}")
     fi
     die "main router not reachable at $GW_IP"
 }
@@ -221,7 +249,10 @@ cmd_ap() {
 
     # Not at its address yet: a factory AP is at 192.168.1.1. The main
     # router may live there too, so never reuse a pooled connection and
-    # never touch anything that does not call itself OpenWrt.
+    # never touch anything that does not call itself OpenWrt. Disable the
+    # control master for this whole run: a pooled 192.168.1.1 socket could
+    # be the main router, and restore it for the next AP afterwards.
+    local saved_opts=("${SSH_OPTS[@]}")
     SSH_OPTS=(-o ControlPath=none "${SSH_OPTS[@]}")
     h=$(hostname_at "$FACTORY_IP")
     if [ "$h" = OpenWrt ] || [ "$h" = "$name" ]; then
@@ -231,8 +262,10 @@ cmd_ap() {
         echo "    internet, plug it into the main LAN."
         run_step "$FACTORY_IP" "$(stage setup network.conf "$NET_VARS")" \
             "sh /tmp/setup/dumb-ap.sh $name" "$ip"
+        SSH_OPTS=("${saved_opts[@]}")
         return 0
     fi
+    SSH_OPTS=("${saved_opts[@]}")
     if [ "$h" = "${MAIN_HOSTNAME:-}" ]; then
         warn "AP $name is not reachable at $ip (192.168.1.1 is the main router)"
     elif [ -n "$h" ]; then
@@ -266,12 +299,22 @@ cmd_wireguard() {
 # the next run.
 cmd_all() {
     local e rc=0
+    MOVED=0
     cmd_main
     for e in $APS; do cmd_ap "${e%%,*}" || rc=1; done
     if [ "$rc" != 0 ]; then
         warn "some APs were skipped - addons not touched"
         warn "run ./deploy.sh ap <name> with only that AP plugged in, then ./deploy.sh again"
         exit 1
+    fi
+    # A router that changed IP mid-run is still finishing and about to
+    # reboot, even though its new SSH port answers. Don't let the addons
+    # race it; the next run is the normal one for addons after a first
+    # configuration.
+    if [ "$MOVED" = 1 ]; then
+        warn "a router moved IP mid-run - addons wait for the next run"
+        warn "run ./deploy.sh again once it is back"
+        return 0
     fi
     if [ -n "$BOT_TOKEN" ]; then cmd_wifi_watch; else echo "(BOT_TOKEN empty - skipping wifi-watch)"; fi
     if [ -n "$WG_PORT" ]; then cmd_wireguard; else echo "(WG_PORT empty - skipping wireguard)"; fi

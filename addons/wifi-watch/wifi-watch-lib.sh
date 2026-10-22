@@ -31,7 +31,17 @@ ww_load_conf() {
     # would make `sleep` fail and turn the loop into a hot loop.
     : "${POLL_INTERVAL:=30}" "${MISSES_TO_LEAVE:=4}" "${CONFIRM_ROUNDS:=3}" \
       "${CONFIRM_GAP:=5}" "${ARPING_TRIES:=3}" "${INITIAL_SETTLE:=45}" \
-      "${AP_FAIL_GRACE:=10}" "${AP_HOSTS:=}" "${PEOPLE:=}" "${PEOPLE_MAC:=}"
+      "${AP_FAIL_GRACE:=10}" "${AP_IPS:=}" "${PEOPLE:=}" "${PEOPLE_MAC:=}"
+    # A typo must not turn the loop into a hot loop: `sleep 30s` fails at
+    # once, and a zero interval is just as bad. Non-numeric values fall
+    # back to the defaults above.
+    case "$POLL_INTERVAL"    in ''|*[!0-9]*|0) POLL_INTERVAL=30 ;; esac
+    case "$MISSES_TO_LEAVE"  in ''|*[!0-9]*|0) MISSES_TO_LEAVE=4 ;; esac
+    case "$CONFIRM_ROUNDS"   in ''|*[!0-9]*) CONFIRM_ROUNDS=3 ;; esac
+    case "$CONFIRM_GAP"      in ''|*[!0-9]*) CONFIRM_GAP=5 ;; esac
+    case "$ARPING_TRIES"     in ''|*[!0-9]*|0) ARPING_TRIES=3 ;; esac
+    case "$INITIAL_SETTLE"   in ''|*[!0-9]*) INITIAL_SETTLE=45 ;; esac
+    case "$AP_FAIL_GRACE"    in ''|*[!0-9]*) AP_FAIL_GRACE=10 ;; esac
 }
 
 # hostname -> person, from PEOPLE="substring=name ..."

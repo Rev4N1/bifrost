@@ -116,7 +116,9 @@ PEOPLE_MAC="aa:bb:cc:dd:ee:ff=Alice"   # fallback for a device with no DHCP host
 
 If Telegram is unreachable (WAN down, PPPoE reconnecting), messages go to a
 queue (`/tmp/wifi-watch/.outbox`) and are sent, in order and with the original
-time attached, as soon as it comes back.
+time attached, as soon as it comes back. The queue is capped at 100 messages, so
+a long outage can't fill RAM. A non-numeric or zero interval falls back to its
+default instead of turning the loop into a hot loop.
 
 ## Why the extra packages
 

@@ -50,6 +50,7 @@ ASSOC="$STATE_DIR/.assoc"
 PERSONS="$STATE_DIR/.persons"
 OUTBOX="$STATE_DIR/.outbox"
 MACMAP_MAX=200          # cap growth from randomized MACs
+OUTBOX_MAX=100          # cap queued messages while Telegram is unreachable
 
 log() { ww_log "$1"; }
 
@@ -67,6 +68,11 @@ notify() {
         return 0
     fi
     echo "$1 ($(date +%H:%M))" >> "$OUTBOX"
+    # /tmp is RAM: a long Telegram outage must not fill it.
+    if [ "$(wc -l < "$OUTBOX")" -gt "$OUTBOX_MAX" ]; then
+        tail -n "$OUTBOX_MAX" "$OUTBOX" > "$OUTBOX.tmp" && mv "$OUTBOX.tmp" "$OUTBOX"
+        log "WARN: telegram queue capped at $OUTBOX_MAX messages"
+    fi
     log "WARN: telegram unreachable, queued: $1"
 }
 
@@ -91,13 +97,13 @@ ip link show "$LAN_IF" >/dev/null 2>&1 || {
 command -v curl >/dev/null 2>&1 || log "WARN: curl not found, notifications will queue forever. Re-run install.sh"
 
 ww_detect_timeout
-if [ -n "$AP_HOSTS" ]; then
+if [ -n "$AP_IPS" ]; then
     if [ ! -r "$SSH_KEY" ]; then
         log "WARN: $SSH_KEY unreadable, association signal limited to local radios. Re-run install.sh"
-        AP_HOSTS=""
+        AP_IPS=""
     elif ! ww_detect_ssh; then
         log "WARN: no ssh client found, association signal limited to local radios. Re-run install.sh"
-        AP_HOSTS=""
+        AP_IPS=""
     fi
 fi
 
@@ -132,7 +138,7 @@ collect_assoc() {
     APS_DEGRADED=0
     { local_assoc; } 2>/dev/null | grep -oE "$MAC_RE" > "$ASSOC.tmp"
 
-    for H in $AP_HOSTS; do
+    for H in $AP_IPS; do
         _f=$(ap_fail_file "$H")
         if remote_assoc "$H" >> "$ASSOC.tmp"; then
             [ "$(ap_fail_count "$H")" -gt 0 ] && log "AP $H reachable again"
@@ -187,7 +193,14 @@ probe_ip() {
 
 record_mac() {
     _mac=$(echo "$1" | tr 'A-F' 'a-f')
-    grep -q "^$_mac " "$MACMAP" 2>/dev/null || echo "$_mac $2" >> "$MACMAP"
+    # One line per MAC: a phone rotating MACs must not fill the map, and a
+    # lease that moves to another person must replace the old owner.
+    if grep -q "^$_mac " "$MACMAP" 2>/dev/null; then
+        _old=$(awk -v m="$_mac" '$1 == m { print $2; exit }' "$MACMAP")
+        [ "$_old" = "$2" ] && return 0
+        grep -v "^$_mac " "$MACMAP" > "$MACMAP.tmp" && mv "$MACMAP.tmp" "$MACMAP"
+    fi
+    echo "$_mac $2" >> "$MACMAP"
 }
 
 person_assoc() {
@@ -238,8 +251,8 @@ mkdir -p "$STATE_DIR"
 [ -f "$MACMAP" ] || : > "$MACMAP"
 APS_DEGRADED=0
 
-if [ -n "$AP_HOSTS" ]; then
-    log "starting: association via local ubus + SSH to [$AP_HOSTS], corroborated by ARP"
+if [ -n "$AP_IPS" ]; then
+    log "starting: association via local ubus + SSH to [$AP_IPS], corroborated by ARP"
 else
     log "starting: association via local ubus only, corroborated by ARP"
 fi
@@ -248,7 +261,8 @@ fi
 # silently, so we don't announce the whole household on boot.
 SEEDING=1
 for F in "$STATE_DIR"/person_*; do
-    [ -e "$F" ] && SEEDING=0
+    [ -e "$F" ] || continue
+    SEEDING=0
     break
 done
 [ "$SEEDING" -eq 1 ] && sleep "$INITIAL_SETTLE"

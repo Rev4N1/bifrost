@@ -38,6 +38,7 @@ uci -q delete network.wan6
 [ -n "$WAN_PORT" ] && br_add_port "$WAN_PORT"
 
 uci set network.lan.proto='static'
+_OLD_LAN=$(uci -q get network.lan.ipaddr)
 uci set network.lan.ipaddr="$AP_IP"
 uci set network.lan.netmask="$NETMASK"
 uci set network.lan.gateway="$GW_IP"
@@ -59,6 +60,9 @@ for S in firewall dnsmasq odhcpd; do
 done
 ok "firewall, dnsmasq, odhcpd disabled"
 
+# The IP change below drops the SSH session. Keep stdout/stderr on a file
+# from here on, so later commands don't write to a dead pipe.
+[ "$AP_IP" = "$_OLD_LAN" ] || exec >/tmp/dumb-ap.log 2>&1
 service network reload >/dev/null 2>&1 || /etc/init.d/network restart
 sleep 5
 

@@ -57,7 +57,7 @@ report_ap() {
 echo
 report_ap "$(uname -n) (local)" "$(eval "$WHERE_CMD" 2>/dev/null)"
 
-for H in $AP_HOSTS; do
+for H in $AP_IPS; do
     report_ap "$H" "$(ww_ap_run "$H" "$WHERE_CMD")"
 done
 

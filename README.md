@@ -96,6 +96,10 @@ named because it boots on the main router's address.
    ./deploy.sh ap <hostname>
    ```
 
+   Plug the PC into one of its **LAN** ports, not its WAN port. Its `AP_IP`
+   in `APS` must be on the same subnet as `192.168.1.1` (the default
+   `192.168.1.2`, `.3`, …): the PC keeps that address while the AP moves.
+
    It finds the AP at 192.168.1.1, configures it, and waits for its own IP (the
    session freezes mid-run, that's fine). When it says it's waiting for
    internet, plug it into the main LAN.
@@ -117,12 +121,16 @@ named because it boots on the main router's address.
    ./deploy.sh
    ```
 
+   After a factory AP, the first run stops before the addons: the AP is still
+   finishing and is about to reboot. Running it again is the normal flow (and
+   is why this step exists).
+
    The Telegram bot is applied when `BOT_TOKEN` is set; WireGuard when
    `WG_PORT` is set. By hand (it also needs the APs' IPs, and asks each AP's
    root password once):
 
    ```powershell
-   $aps = (Select-String -Path bifrost.conf -Pattern '^APS="([^"]*)"').Matches[0].Groups[1].Value; $apHosts = ($aps -split '\s+' | Where-Object { $_ } | ForEach-Object { ($_ -split ',')[1] }) -join ' '; Write-RouterConf addons/wifi-watch/wifi-watch.conf $watch "AP_HOSTS=""$apHosts"""; scp -O -r addons/wifi-watch root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/wifi-watch/install.sh"
+   $aps = (Select-String -Path bifrost.conf -Pattern '^APS="([^"]*)"').Matches[0].Groups[1].Value; $apIps = ($aps -split '\s+' | Where-Object { $_ } | ForEach-Object { ($_ -split ',')[1] }) -join ' '; Write-RouterConf addons/wifi-watch/wifi-watch.conf $watch "AP_IPS=""$apIps"""; scp -O -r addons/wifi-watch root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/wifi-watch/install.sh"
    ```
 
    ```powershell
@@ -209,6 +217,11 @@ addons/
   export` before and after; if nothing changed, it exits without rebooting
   (and `deploy.sh` notices, instead of waiting for a reboot that is not
   coming). Re-running everything on a quiet day touches no Wi-Fi.
+- **An IP change is expected.** A factory AP (or a main router moving off
+  `192.168.1.1`) drops the SSH session mid-run. The script ignores the hangup
+  and keeps its later output in `/tmp/main-router.log` or `/tmp/dumb-ap.log`
+  on that router; `deploy.sh` waits for the new address. If a move skipped the
+  addons, the next run applies them.
 - **Host keys aren't pinned.** Every flash gives a router a new SSH host key,
   so pinning would break every run. `deploy.sh` only talks to your own devices
   on your LAN.

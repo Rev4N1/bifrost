@@ -201,8 +201,8 @@ push_key() {
 authorize_aps() {
     hdr "Dumb APs"
     [ -n "$SSH_BIN" ] || { warn "no ssh client, skipping"; return; }
-    [ -n "$AP_HOSTS" ] || { ok "AP_HOSTS empty, nothing to authorize"; return; }
-    for H in $AP_HOSTS; do
+    [ -n "$AP_IPS" ] || { ok "AP_IPS empty, nothing to authorize"; return; }
+    for H in $AP_IPS; do
         push_key "$H"
     done
 }
@@ -266,7 +266,7 @@ self_test() {
     fi
 
     ww_detect_ssh
-    for H in $AP_HOSTS; do
+    for H in $AP_IPS; do
         _out=$(ww_ap_run "$H" "$ASSOC_CMD")
         if ww_answered "$_out"; then
             _c=$(printf '%s' "$_out" | grep -oE "$MAC_RE" | tr 'A-F' 'a-f' | sort -u | wc -l)

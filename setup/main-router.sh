@@ -26,13 +26,16 @@ uci set network.wan.username="$PPPOE_USER"
 uci set network.wan.password="$PPPOE_PASS"
 
 uci set network.lan.proto='static'
+_OLD_LAN=$(uci -q get network.lan.ipaddr)
 uci set network.lan.ipaddr="$GW_IP"
 uci set network.lan.netmask="$NETMASK"
 uci -q delete network.lan.ip6assign
 uci set network.lan.delegate='0'
 uci -q delete network.globals.ula_prefix
 # The WAN port must never also be a LAN bridge port.
-uci -q del_list "network.$(br_lan_section).ports=$WAN_DEVICE"
+_BR=$(br_lan_section)
+[ -n "$_BR" ] || die "no br-lan device found - refusing to leave $WAN_DEVICE in the LAN bridge"
+uci -q del_list "network.$_BR.ports=$WAN_DEVICE" || true
 setup_packet_steering
 uci commit network
 ok "WAN pppoe on $WAN_DEVICE, LAN $GW_IP"
@@ -59,6 +62,9 @@ uci commit firewall
 /etc/init.d/firewall restart >/dev/null 2>&1
 ok "flow offloading (hw) enabled"
 
+# The LAN IP change below drops the SSH session. Keep stdout/stderr on a
+# file from here on, so later commands don't write to a dead pipe.
+[ "$GW_IP" = "$_OLD_LAN" ] || exec >/tmp/main-router.log 2>&1
 service network reload >/dev/null 2>&1 || /etc/init.d/network restart
 /etc/init.d/dnsmasq restart >/dev/null 2>&1
 sleep 5

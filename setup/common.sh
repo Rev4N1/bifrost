@@ -10,8 +10,13 @@
 SETUP_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # A dumb AP changes its own IP mid-run, which kills the SSH
-# session we were started from. Don't let that kill us too.
-trap '' HUP
+# session we were started from. Don't let that kill us too:
+# HUP is the session hangup, PIPE is the next write to its
+# closed stdout/stderr.
+trap '' HUP PIPE
+# Nothing here reads the terminal; a gone session must not
+# block a read either.
+exec </dev/null
 
 say()  { printf '%s\n' "$*"; }
 ok()   { printf '  [ ok ] %s\n' "$*"; }

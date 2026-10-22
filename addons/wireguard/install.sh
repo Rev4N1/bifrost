@@ -266,7 +266,11 @@ uninstall() {
 client_add() {
     _name=$1; _ip=$2
     [ -n "$_name" ] || die "usage: install.sh client add NAME [IP]"
+    case "$_name" in ""|*[!A-Za-z0-9._-]*) die "client name: letters, digits, . _ - only" ;; esac
+    [ "$VPN_PREFIX" = 24 ] || die "VPN_SUBNET must be a /24 for automatic client IPs"
     uci -q get network.wg0 >/dev/null || die "no wg0 - run the install first"
+    _endpoint=$(endpoint_host)
+    [ -n "$_endpoint" ] || die "no WAN IPv4 address or DuckDNS domain - the client endpoint would be empty"
     _sec="wgpeer_$(echo "$_name" | tr -c 'a-zA-Z0-9\n' '_')"
     for S in $(sections network wireguard_wg0); do
         [ "$(uci -q get "network.$S.description")" = "$_name" ] && die "client $_name already exists"
@@ -276,6 +280,14 @@ client_add() {
         _last=$(echo "$_used" | tr ' ' '\n' | sed -n "s|^$VPN_BASE\.\([0-9]*\)/32$|\1|p" | sort -n | tail -n1)
         _ip=$VPN_BASE.$(( ${_last:-1} + 1 ))
     fi
+    # The server is $VPN_BASE.1/24; anything else has no route back through
+    # the tunnel, and the client would look connected but reach nothing.
+    case "$_ip" in
+        "$VPN_BASE".*) _host=${_ip#"$VPN_BASE".} ;;
+        *) die "$_ip is outside $VPN_SUBNET" ;;
+    esac
+    case "$_host" in ''|*[!0-9]*) die "bad client IP $_ip" ;; esac
+    [ "$_host" -ge 2 ] && [ "$_host" -le 254 ] || die "$_ip must be ${VPN_BASE}.2-254"
     echo "$_used" | tr ' ' '\n' | grep -qx "$_ip/32" && die "$_ip already used"
 
     _key=$(wg genkey); _psk=$(wg genpsk)
@@ -299,7 +311,7 @@ DNS = $CLIENT_DNS
 [Peer]
 PublicKey = $(server_pub)
 PresharedKey = $_psk
-Endpoint = $(endpoint_host):$(uci -q get network.wg0.listen_port)
+Endpoint = $_endpoint:$(uci -q get network.wg0.listen_port)
 AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 25
 EOF

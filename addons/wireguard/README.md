@@ -54,6 +54,9 @@ the PC:
 
 Adding a peer changes one router setting, so it is not part of `deploy.sh`.
 Run `./deploy.sh` first (or at least once), so the addon is installed.
+`VPN_SUBNET` must stay a `/24` (the router is `.1`, clients get `.2`–`.254`);
+a client IP outside it is refused, because the router would have no route back
+through the tunnel.
 
 Both kinds show up in LuCI and in `client list`. A client added from the PC
 leaves only its public key on the router, and its private key only in
