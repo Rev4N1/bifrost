@@ -119,12 +119,6 @@ router/
   so pinning would break every run. `deploy.sh` only talks to your own devices
   on your LAN.
 
-## Related
-
-[Skidbladnir](https://github.com/Rev4N1/skidbladnir) turns a Raspberry Pi Zero
-2 W into a pocket Tailscale exit node that works on any Wi-Fi, with nothing to
-set up on the router.
-
 ## License
 
 [MIT](LICENSE)
