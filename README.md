@@ -8,8 +8,7 @@ just run it again.
 
 - **Routers:** one SSID everywhere with 802.11r/k/v/w fast roaming, `usteer`
   steering devices to the best AP, non-overlapping channels, lower 2.4 GHz
-  power, hardware NAT offload, packet steering, a 1000-name DNS cache, and
-  optional UPnP.
+  power, hardware NAT offload, packet steering, and optional UPnP.
 - **WireGuard:** a VPN server on the main router, kept reachable by DuckDNS.
   VPN clients get the internet plus only the LAN services you list. All of it
   is editable in LuCI.
