@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # ========================================================
 # lib/pc.sh - what deploy.sh and addons/wireguard/client.sh
 # share on the PC: reading bifrost.conf, passwords-only SSH,

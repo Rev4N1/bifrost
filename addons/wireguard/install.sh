@@ -271,7 +271,6 @@ client_add() {
     uci -q get network.wg0 >/dev/null || die "no wg0 - run the install first"
     _endpoint=$(endpoint_host)
     [ -n "$_endpoint" ] || die "no WAN IPv4 address or DuckDNS domain - the client endpoint would be empty"
-    _sec="wgpeer_$(echo "$_name" | tr -c 'a-zA-Z0-9\n' '_')"
     for S in $(sections network wireguard_wg0); do
         [ "$(uci -q get "network.$S.description")" = "$_name" ] && die "client $_name already exists"
     done
@@ -291,7 +290,9 @@ client_add() {
     echo "$_used" | tr ' ' '\n' | grep -qx "$_ip/32" && die "$_ip already used"
 
     _key=$(wg genkey); _psk=$(wg genpsk)
-    uci set "network.$_sec=wireguard_wg0"
+    # An anonymous peer section: a name-derived one could collide when two
+    # client names differ only in . or - (both map to _).
+    _sec=$(uci add network wireguard_wg0)
     uci set "network.$_sec.description=$_name"
     uci set "network.$_sec.public_key=$(echo "$_key" | wg pubkey)"
     uci set "network.$_sec.preshared_key=$_psk"
