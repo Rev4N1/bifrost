@@ -5,7 +5,7 @@
 #   cp -n bifrost.conf.example bifrost.conf
 #
 # Git-ignored; keep a backup somewhere safe (it holds every
-# password). Fill in every CHANGE_ME. Parts 5, 7 and 8 are
+# password). Fill in every CHANGE_ME. Parts 5, 6 and 7 are
 # optional and stay off while left empty.
 # ========================================================
 
@@ -79,27 +79,22 @@ INITIAL_SETTLE=45           # seconds to wait after a start
 AP_FAIL_GRACE=10            # checks an AP may be unreachable before it's ignored
 
 
-# ======== 6. Remote access (used by parts 7 and 8) ========
-
-# LAN services VPN clients may reach, "ip:proto:port", e.g. "192.168.1.20:tcp:3389".
-# Everything else on the LAN is blocked; give those hosts static IPs.
-VPN_LAN_ACCESS=""
-
-
-# ======== 7. WireGuard VPN on the main router (optional: off while WG_PORT is empty) ========
+# ======== 6. WireGuard VPN on the main router (optional: off while WG_PORT is empty) ========
 # Seeds the router once (router/addon-wireguard/README.md); after the
 # first deploy, edit it in LuCI and these values are no longer read.
 
 WG_PORT="51820"
 VPN_SUBNET="10.7.0.0/24"    # the router is .1, clients get .2 and up
 CLIENT_DNS="9.9.9.9, 1.1.1.1"
+VPN_LAN_ACCESS=""           # LAN services VPN clients may reach, "ip:proto:port", e.g. "192.168.1.20:tcp:3389"
+                            # (everything else on the LAN is blocked; give those hosts static IPs)
 
 # DuckDNS keeps <subdomain>.duckdns.org pointing at your home IP (empty = clients use the WAN IP)
 DUCKDNS_DOMAIN=""           # subdomain only, without .duckdns.org
 DUCKDNS_TOKEN=""
 
 
-# ======== 8. Pi Tailscale stick (optional, see pi/README.md) ========
+# ======== 7. Pi Tailscale stick (optional, see pi/README.md) ========
 
 # Login: the user you create in Raspberry Pi Imager. With the password
 # here, deploy.sh installs its SSH key once and answers sudo itself.

@@ -1,12 +1,11 @@
 # wireguard (addon)
 
-A WireGuard VPN server on the main router, with the same rules the Pi used to
-have: VPN clients reach the internet and the services in `VPN_LAN_ACCESS`, and
-nothing else on the LAN. Everything shows up in LuCI, where you can change it
-whenever you like.
+A WireGuard VPN server on the main router: VPN clients reach the internet and
+the services in `VPN_LAN_ACCESS`, and nothing else on the LAN. Everything shows
+up in LuCI, where you can change it whenever you like.
 
 **`bifrost.conf` seeds it, LuCI owns it.** The first deploy creates each piece
-below from part 7 of `bifrost.conf`. From then on, a piece that exists is never
+below from part 6 of `bifrost.conf`. From then on, a piece that exists is never
 touched again, so what you change in LuCI stays, and "Keep settings" carries it
 across flashes. Re-runs only reinstall the packages (a flash drops them) and
 bring `wg0` back up.
@@ -29,9 +28,11 @@ ping. To manage it over the VPN, add a rule in LuCI.
 ./deploy.sh wireguard
 ```
 
-`./deploy.sh routers` runs it too, while `WG_PORT` is set. It removes any port
-forward of `WG_PORT` (such as the old Pi gateway's), since that would take the
-traffic away from the router.
+`./deploy.sh routers` runs it too, while `WG_PORT` is set.
+
+VPN traffic to the LAN isn't NAT'd, so LAN hosts see the client's `10.7.0.x`
+address. A host firewall that only allows its "local subnet" (Windows Remote
+Desktop, for example) needs `10.7.0.0/24` allowed too.
 
 ## Clients
 

@@ -8,8 +8,7 @@
 #   - USB-ethernet drivers so the Pi shows up as $PI_PORT
 #   - $PI_PORT as a br-lan port
 #   - the Pi's static DHCP lease (section pigw_<PI_NAME>)
-# Tailscale needs no port forward; the one older versions made
-# (pigw_wireguard) is removed.
+# Tailscale needs no port forward.
 #
 # Idempotent: re-run after every flash or after editing
 # bifrost.conf (deploy.sh writes pi-gateway.conf from it). Any
@@ -24,7 +23,6 @@
 SRC_DIR=$(cd "$(dirname "$0")" && pwd)
 CONF="$SRC_DIR/pi-gateway.conf"
 PKGS="kmod-usb-net-cdc-ether kmod-usb-net-rndis"
-FWD_SEC="pigw_wireguard"
 
 RC=0
 say()  { printf '%s\n' "$*"; }
@@ -57,13 +55,7 @@ br_lan_section() {
     uci show network | sed -n "s/^network\.\([^.]*\)\.name='br-lan'$/\1/p" | head -n1
 }
 
-pkg_installed() {
-    if command -v apk >/dev/null 2>&1; then
-        apk list --installed 2>/dev/null | grep -q "^$1-[0-9]"
-    else
-        opkg list-installed 2>/dev/null | grep -q "^$1 "
-    fi
-}
+pkg_installed() { apk list --installed 2>/dev/null | grep -q "^$1-[0-9]"; }
 
 # ---- steps ---------------------------------------------------------
 
@@ -82,11 +74,7 @@ install_pkgs() {
         ok "already installed"
         return
     fi
-    if command -v apk >/dev/null 2>&1; then
-        apk update >/dev/null 2>&1; apk add $_missing >/dev/null 2>&1
-    else
-        opkg update >/dev/null 2>&1; opkg install $_missing >/dev/null 2>&1
-    fi
+    apk update >/dev/null 2>&1; apk add $_missing >/dev/null 2>&1
     for P in $_missing; do
         pkg_installed "$P" && ok "$P installed" || fail "$P failed to install (no internet?)"
     done
@@ -140,19 +128,13 @@ setup_leases() {
     done
 }
 
-drop_old_forward() {
-    uci -q delete "firewall.$FWD_SEC" && ok "removed the old WireGuard port forward"
-}
-
 apply() {
     hdr "Apply"
     uci commit network
     uci commit dhcp
-    uci commit firewall
     service network reload >/dev/null 2>&1
     /etc/init.d/dnsmasq restart >/dev/null 2>&1
-    /etc/init.d/firewall reload >/dev/null 2>&1
-    ok "network, dnsmasq, firewall reloaded"
+    ok "network, dnsmasq reloaded"
 }
 
 check() {
@@ -189,7 +171,6 @@ uninstall() {
     for S in $(sections dhcp host); do
         case "$S" in pigw_*) uci delete "dhcp.$S"; ok "removed lease $S" ;; esac
     done
-    drop_old_forward
     uci -q del_list "network.$(br_lan_section).ports=$PI_PORT" && ok "removed $PI_PORT from br-lan"
     apply
     say ""
@@ -205,7 +186,6 @@ case "$1" in
         install_pkgs
         setup_bridge
         setup_leases
-        drop_old_forward
         apply
         sleep 3
         check

@@ -110,13 +110,7 @@ need() {
 
 install_deps() {
     hdr "Dependencies"
-    if command -v apk >/dev/null 2>&1; then
-        PKG_ADD="apk add"; apk update >/dev/null 2>&1
-    elif command -v opkg >/dev/null 2>&1; then
-        PKG_ADD="opkg install"; opkg update >/dev/null 2>&1
-    else
-        fail "no apk or opkg found"; return
-    fi
+    PKG_ADD="apk add"; apk update >/dev/null 2>&1
 
     # Not in the default image: without it no notification is ever sent.
     need curl curl "notifications will queue until it is installed"

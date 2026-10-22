@@ -1,16 +1,16 @@
 #!/bin/bash
 # ========================================================
 # pi/setup.sh - Raspberry Pi Zero 2 W as a portable
-# Tailscale exit node and subnet router: on the main
-# router's USB at home, on any Wi-Fi elsewhere. Runs as
-# root on the Pi; deploy.sh copies it over with pi.conf
-# (its part of bifrost.conf), runs it, and deletes both.
+# Tailscale exit node and subnet router for whatever LAN
+# it's on: the main router's USB at home, any Wi-Fi
+# elsewhere. Runs as root on the Pi; deploy.sh copies it
+# over with pi.conf (its part of bifrost.conf), runs it,
+# and deletes both.
 #
 #   setup.sh network            usb0 as plain DHCP client + pinned MACs
 #                               (first, while on the PC's USB)
 #   setup.sh                    everything, network included (on the router)
-#   setup.sh system|wifi|tailscale|firewall    one step
-#   setup.sh wifi add SSID [PASSWORD] | forget SSID | list
+#   setup.sh system|wifi|tailscale    one step
 #   setup.sh poweroff           shut down (before moving the cable)
 #
 # Every step converges: re-running it changes only what
@@ -28,7 +28,6 @@ die()  { printf '  [FAIL] %s\n' "$*"; exit 1; }
 [ -r "$DIR/pi.conf" ] || die "pi.conf not found next to $0 - run this through ./deploy.sh pi"
 . "$DIR/pi.conf"
 
-TS_SUBNET=100.64.0.0/10            # Tailscale's addresses
 NEED_REBOOT=0
 CFG=/boot/firmware/config.txt
 
@@ -78,7 +77,7 @@ phase_system() {
     export DEBIAN_FRONTEND=noninteractive
     apt-get -qq update
     apt-get -qq -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold full-upgrade
-    apt-get -qq install unattended-upgrades nftables curl
+    apt-get -qq install unattended-upgrades curl
     apt-get -qq autoremove
     printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n' \
         > /etc/apt/apt.conf.d/20auto-upgrades
@@ -87,15 +86,10 @@ phase_system() {
 
     hdr "SD card"
     # Logs in RAM only (lost on reboot). Trixie has no rsyslog, so this
-    # covers all logging and log2ram isn't needed.
+    # covers all logging.
     mkdir -p /etc/systemd/journald.conf.d
     printf '[Journal]\nStorage=volatile\nRuntimeMaxUse=20M\n' > /etc/systemd/journald.conf.d/volatile.conf
     systemctl restart systemd-journald
-    if dpkg -s log2ram >/dev/null 2>&1; then
-        systemctl stop log2ram || true
-        apt-get -qq purge log2ram
-    fi
-    rm -f /etc/apt/sources.list.d/azlux.list /usr/share/keyrings/azlux-archive-keyring.gpg
     # Swap in compressed RAM only (the default also writes to /var/swap).
     mkdir -p /etc/rpi/swap.conf.d
     if [ "$(cat /etc/rpi/swap.conf.d/50-zram-only.conf 2>/dev/null)" != "$(printf '[Main]\nMechanism=zram')" ]; then
@@ -108,14 +102,11 @@ phase_system() {
 
     hdr "Unused hardware"
     systemctl disable --now bluetooth.service >/dev/null 2>&1 || true
-    # Wi-Fi is the uplink away from home: NetworkManager needs wpa_supplicant.
-    systemctl unmask wpa_supplicant.service >/dev/null 2>&1 || true
     systemctl disable --now getty@tty1.service serial-getty@ttyAMA0.service >/dev/null 2>&1 || true
     before=$(md5sum < "$CFG")
     # No display, camera or audio: drop the KMS driver, give the GPU the
     # minimum RAM. Bluetooth and the activity LED off; Wi-Fi stays on.
     sed -i -e 's/^dtoverlay=vc4-kms-v3d/#&/' \
-           -e '/^dtoverlay=disable-wifi$/d' \
            -e 's/^dtparam=audio=on$/dtparam=audio=off/' \
            -e 's/^camera_auto_detect=1$/camera_auto_detect=0/' \
            -e 's/^display_auto_detect=1$/display_auto_detect=0/' "$CFG"
@@ -134,9 +125,8 @@ phase_system() {
 }
 
 # ---- wifi: the uplink away from home -------------------------------
-# At home the Pi is online through usb0 (NetworkManager prefers wired);
-# elsewhere it joins any Wi-Fi saved with "wifi add". Saving one works
-# out of range too, e.g. from a laptop on the Pi's USB before a trip.
+# At home the Pi is online through usb0 (NetworkManager prefers wired).
+# Elsewhere it joins a Wi-Fi saved with nmcli (pi/README.md).
 phase_wifi() {
     hdr "Wi-Fi"
     # Country on the kernel command line: it applies at boot, before
@@ -155,53 +145,15 @@ phase_wifi() {
         printf '%s\n' "$want" > /etc/NetworkManager/conf.d/wifi-powersave.conf
         nmcli general reload conf >/dev/null 2>&1 || true
     fi
-    ok "on, country $COUNTRY, power saving off, $(wifi_saved | wc -l) network(s) saved"
+    ok "on, country $COUNTRY, power saving off"
 }
 
-wifi_saved() { nmcli -t -f NAME,TYPE connection show | sed -n 's/:802-11-wireless$//p'; }
-
-wifi_add() {
-    ssid=$1; pass=${2:-}
-    [ -n "$ssid" ] || die "usage: setup.sh wifi add SSID [PASSWORD]"
-    nmcli connection delete id "$ssid" >/dev/null 2>&1 || true
-    nmcli connection add type wifi ifname wlan0 con-name "$ssid" ssid "$ssid" \
-        connection.autoconnect yes >/dev/null
-    if [ -n "$pass" ]; then
-        nmcli connection modify "$ssid" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$pass"
-    fi
-    nmcli connection up "$ssid" >/dev/null 2>&1 \
-        && ok "$ssid saved and connected" \
-        || ok "$ssid saved (not in range now; it joins by itself when it is)"
-}
-
-wifi_forget() {
-    [ -n "${1:-}" ] || die "usage: setup.sh wifi forget SSID"
-    nmcli connection delete id "$1" >/dev/null 2>&1 || die "no saved Wi-Fi $1"
-    ok "$1 forgotten"
-}
-
-wifi_list() {
-    wifi_saved | sed 's/^/  /'
-    nmcli -t -f DEVICE,STATE,CONNECTION device | awk -F: '$1 == "wlan0" || $1 == "usb0" {print "  now: " $1 " " $2 " " $3}'
-}
-
-# ---- tailscale: exit node + the VPN_LAN_ACCESS hosts ---------------
-# Replaces the old DuckDNS + WireGuard server (removed here if present):
+# ---- tailscale: exit node + whatever LAN the Pi is on --------------
 # Tailscale needs no port forward and works behind any NAT, so the Pi
-# works from wherever it's plugged in.
+# works from wherever it's plugged in. A NetworkManager hook advertises
+# the networks it's on right now (the home LAN through usb0, a hotel
+# Wi-Fi...), so Tailscale clients reach the whole LAN, wherever it is.
 phase_tailscale() {
-    hdr "Old WireGuard server"
-    if [ -e /etc/wireguard/wg0.conf ] || [ -e /opt/duckdns ]; then
-        systemctl disable --now wg-quick@wg0 duckdns.timer >/dev/null 2>&1 || true
-        rm -rf /etc/wireguard /opt/duckdns /etc/systemd/system/duckdns.service /etc/systemd/system/duckdns.timer
-        systemctl daemon-reload
-        DEBIAN_FRONTEND=noninteractive apt-get -qq purge wireguard wireguard-tools qrencode >/dev/null 2>&1 || true
-        rm -f /etc/sysctl.d/99-wireguard-forward.conf
-        ok "removed (keys, peers, DuckDNS)"
-    else
-        ok "none"
-    fi
-
     hdr "Tailscale"
     if ! command -v tailscale >/dev/null; then
         . /etc/os-release
@@ -218,12 +170,7 @@ phase_tailscale() {
     printf 'net.ipv4.ip_forward=1\nnet.ipv6.conf.all.forwarding=1\n' > /etc/sysctl.d/99-tailscale.conf
     sysctl -q --system
 
-    routes=""
-    for e in $VPN_LAN_ACCESS; do
-        ip=${e%%:*}
-        case " ${routes//,/ } " in *" $ip/32 "*) ;; *) routes="${routes:+$routes,}$ip/32" ;; esac
-    done
-    flags="--hostname=$PI_NAME --advertise-exit-node --advertise-routes=$routes --accept-dns=false"
+    flags="--hostname=$PI_NAME --advertise-exit-node --accept-dns=false"
     if tailscale status >/dev/null 2>&1; then
         # Logged in: "set" changes just these, without touching the login.
         # shellcheck disable=SC2086
@@ -234,172 +181,37 @@ phase_tailscale() {
         tailscale up $flags ${TS_AUTHKEY:+--auth-key="$TS_AUTHKEY"} || die "tailscale up failed"
     fi
     tailscale set --auto-update=true >/dev/null 2>&1 || warn "couldn't turn on Tailscale auto-updates"
-    ok "$(tailscale ip -4) as $PI_NAME: exit node, routes ${routes:-none}"
-    say "         approve both in the admin console (Machines > $PI_NAME > Edit route settings),"
-    say "         and turn off its key expiry there"
-}
 
-# ---- firewall: nftables, applied with rollback ---------------------
-# Its own tables only (no "flush ruleset"): tailscaled keeps its rules
-# in tables of its own, and nftables lets a packet through only when
-# every table accepts it.
-phase_firewall() {
-    hdr "Firewall"
-    mkdir -p /etc/nftables.d
-
-    lan_rules=""
-    for e in $VPN_LAN_ACCESS; do
-        ip=${e%%:*}; r=${e#*:}; proto=${r%%:*}; port=${r#*:}
-        case "$proto:$port" in
-            tcp:[0-9]*|udp:[0-9]*) ;;
-            *) die "bad VPN_LAN_ACCESS entry '$e' (want ip:tcp|udp:port)" ;;
-        esac
-        lan_rules="$lan_rules        iifname \"tailscale0\" oifname \"usb0\" ip daddr $ip $proto dport $port accept
-"
-    done
-
-    new=$(mktemp)
-    cat > "$new" <<EOF
-#!/usr/sbin/nft -f
-# Generated by pi/setup.sh from bifrost.conf - re-running it overwrites this.
-# Rules for other services on the Pi go in /etc/nftables.d/*.nft.
-
-table inet bifrost
-delete table inet bifrost
-table ip bifrost_nat
-delete table ip bifrost_nat
-
-table inet bifrost {
-    set private4 {
-        type ipv4_addr; flags interval
-        elements = { 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16 }
-    }
-
-    chain input {
-        type filter hook input priority 0; policy drop;
-
-        iifname "lo" accept
-        # IPv6 neighbour discovery, ahead of the invalid check (not tracked)
-        icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert } accept
-        ct state established,related accept
-        ct state invalid drop
-
-        # usb0 is a cable: the home LAN, or your laptop (SSH, mDNS for <hostname>.local)
-        iifname "usb0" accept
-        # Tailscale peers -> Pi (SSH from anywhere)
-        iifname "tailscale0" ip saddr $TS_SUBNET accept
-        # Tailscale direct connections; Wi-Fi gets nothing else
-        udp dport 41641 accept
-        icmp type echo-request accept
-    }
-
-    chain output {
-        type filter hook output priority 0; policy accept;
-
-        # Never act as a DHCP server on the LAN
-        oifname "usb0" udp sport 67 drop
-    }
-
-    chain forward {
-        type filter hook forward priority 0; policy drop;
-
-        ct state established,related accept
-        ct state invalid drop
-
-        # Tailscale -> the home LAN services in VPN_LAN_ACCESS, nothing else on the LAN
-$lan_rules
-        # Exit node: Tailscale -> internet, never into whatever network the Pi is on
-        iifname "tailscale0" ip saddr $TS_SUBNET ip daddr != @private4 accept
-    }
-}
-
-table ip bifrost_nat {
-    chain postrouting {
-        type nat hook postrouting priority 100; policy accept;
-        ip saddr $TS_SUBNET oifname { "usb0", "wlan0" } masquerade
-    }
-}
-
-include "/etc/nftables.d/*.nft"
+    hook=/etc/NetworkManager/dispatcher.d/90-tailscale-routes
+    cat > "$hook" <<'EOF'
+#!/bin/sh
+# Written by pi/setup.sh. Advertises the networks the Pi is on right
+# now (usb0, wlan0) as Tailscale subnet routes.
+case "$2" in up|down|dhcp4-change) ;; *) exit 0 ;; esac
+routes=$(ip -4 route show proto kernel scope link \
+    | awk '$2 == "dev" && ($3 == "usb0" || $3 == "wlan0") {print $1}' | sort -u | paste -sd, -)
+# The exit node flag again, or "set" would drop it along with the old routes.
+tailscale set --advertise-exit-node --advertise-routes="$routes"
 EOF
-    nft -c -f "$new" || { rm -f "$new"; die "generated ruleset doesn't parse"; }
-
-    if cmp -s "$new" /etc/nftables.conf && systemctl -q is-active nftables; then
-        rm -f "$new"
-        ok "rules unchanged"
-        return
-    fi
-
-    # The WireGuard-era ruleset began with "flush ruleset" and owned
-    # "ip nat"; clear it all once, then let tailscaled rebuild its rules.
-    migrate=0
-    grep -q '^flush ruleset' /etc/nftables.conf 2>/dev/null && migrate=1
-
-    # New rules: load them with a 2-minute safety net, and keep them only
-    # if a fresh SSH login still works. The rollback runs from a systemd
-    # timer, so it happens even if this session (and script) dies: it
-    # puts the previous rules back, or with none, drops ours.
-    rm -f /etc/nftables.conf.prev
-    [ -f /etc/nftables.conf ] && cp -f /etc/nftables.conf /etc/nftables.conf.prev
-    install -m 755 "$new" /etc/nftables.conf
-    rm -f "$new"
-    systemctl stop nft-rollback.timer nft-rollback.service >/dev/null 2>&1 || true
-    systemctl reset-failed nft-rollback.timer nft-rollback.service >/dev/null 2>&1 || true
-    systemd-run --quiet --on-active=120 --unit=nft-rollback /bin/sh -c '
-        if [ -f /etc/nftables.conf.prev ]; then
-            mv -f /etc/nftables.conf.prev /etc/nftables.conf && nft -f /etc/nftables.conf
-        else
-            mv -f /etc/nftables.conf /etc/nftables.conf.rejected
-            nft delete table inet bifrost; nft delete table ip bifrost_nat
-        fi
-        systemctl restart tailscaled'
-    if [ "$migrate" = 1 ]; then
-        nft flush ruleset
-        nft -f /etc/nftables.conf
-        systemctl restart tailscaled
-    else
-        nft -f /etc/nftables.conf
-    fi
-
-    ans=""
-    if [ -t 0 ]; then
-        echo "  New rules loaded. Within 2 minutes, open a NEW ssh session to the Pi."
-        read -r -t 110 -p "  Did it connect? Type yes to keep them: " ans || true
-    fi
-    if [ "$ans" = yes ]; then
-        systemctl stop nft-rollback.timer
-        rm -f /etc/nftables.conf.prev
-        systemctl enable nftables >/dev/null 2>&1
-        ok "rules kept and enabled at boot"
-    else
-        die "not confirmed - the previous rules come back within 2 minutes"
-    fi
+    chmod 755 "$hook"
+    "$hook" usb0 up || warn "couldn't advertise the current networks yet - they follow on the next network change"
+    ok "$(tailscale ip -4) as $PI_NAME: exit node + $(ip -4 route show proto kernel scope link | awk '$3 == "usb0" || $3 == "wlan0" {printf "%s ", $1}')"
 }
 
 # ---- main ----------------------------------------------------------
 case "${1:-all}" in
-    network)  phase_network ;;
-    system)   phase_system ;;
-    wifi)
-        case "${2:-}" in
-            "")     phase_wifi ;;
-            add)    wifi_add "${3:-}" "${4:-}"; exit 0 ;;
-            forget) wifi_forget "${3:-}"; exit 0 ;;
-            list)   wifi_list; exit 0 ;;
-            *)      die "usage: setup.sh wifi [add SSID [PASSWORD] | forget SSID | list]" ;;
-        esac
-        ;;
+    network)   phase_network ;;
+    system)    phase_system ;;
+    wifi)      phase_wifi ;;
     tailscale) phase_tailscale ;;
-    firewall) phase_firewall ;;
-    poweroff) hdr "Shutting down - wait for the activity to stop, then unplug"; systemctl poweroff; exit 0 ;;
+    poweroff)  hdr "Shutting down - wait for the activity to stop, then unplug"; systemctl poweroff; exit 0 ;;
     all)
         phase_network
         phase_system
         phase_wifi
         phase_tailscale
-        phase_firewall
         ;;
-    *) die "usage: setup.sh [network|system|wifi|tailscale|firewall|all|poweroff] | wifi add|forget|list ..." ;;
+    *) die "usage: setup.sh [network|system|wifi|tailscale|all|poweroff]" ;;
 esac
 
 if [ "$NEED_REBOOT" = 1 ]; then

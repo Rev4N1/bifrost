@@ -4,8 +4,8 @@ The bridge to and across your home network, as code. OpenWrt routers (one main
 router plus dumb APs over a wired backhaul), an optional WireGuard VPN on the
 main router, an optional Raspberry Pi Zero 2 W as a portable Tailscale exit
 node, and an optional Telegram home/away bot, all deployed from your PC with
-one command. Every step is safe to re-run, so after a firmware
-flash you just run it again.
+one command. Every step is safe to re-run, so after a firmware flash you just
+run it again.
 
 - **Routers:** one SSID everywhere with 802.11r/k/v/w fast roaming, `usteer`
   steering devices to the best AP, non-overlapping channels, lower 2.4 GHz
@@ -13,9 +13,9 @@ flash you just run it again.
 - **WireGuard:** a VPN server on the main router, kept reachable by DuckDNS.
   VPN clients get the internet plus only the LAN services you list. All of it
   is editable in LuCI.
-- **Pi:** a Tailscale exit node and subnet router on the main router's USB
-  port, or on any Wi-Fi when you take it with you. Locked down with nftables,
-  and stripped down to what it uses, for free RAM and SD-card life.
+- **Pi:** a Tailscale exit node with access to the whole LAN it's on: the
+  home LAN through the main router's USB port, or any Wi-Fi when you take it
+  with you. Stripped down to what it uses, for free RAM and SD-card life.
 - **Telegram bot:** tells a chat when someone's phone leaves or comes home.
 
 ## 1. What you need
@@ -37,8 +37,8 @@ cp -n bifrost.conf.example bifrost.conf
 ```
 
 Open it and go top to bottom; it's ordered the way you'd fill it in. Replace
-every `CHANGE_ME`. Parts 5 (Telegram), 7 (WireGuard) and 8 (Pi) are optional and stay off
-while empty. Nothing about your layout is hard-coded: part 4 lists each AP as
+every `CHANGE_ME`. Parts 5 (Telegram), 6 (WireGuard) and 7 (Pi) are optional
+and stay off while empty. Nothing about your layout is hard-coded: part 4 lists each AP as
 `hostname,ip,ch24,ch5`.
 
 `bifrost.conf` is git-ignored and holds every password, so keep a backup
@@ -47,29 +47,46 @@ only file you need to rebuild everything.
 
 ## 3. Routers
 
+From factory-fresh routers, in this order:
+
+1. **Main router.** Plug your PC into it and connect its WAN port:
+
+   ```bash
+   ./deploy.sh main
+   ```
+
+2. **Each AP.** A factory-fresh AP boots at 192.168.1.1, the same address as
+   the main router, so plug **only your PC** into it:
+
+   ```bash
+   ./deploy.sh ap <hostname> --fresh
+   ```
+
+   It moves to its own IP mid-run (the session freezes, that's fine). When it
+   says it's waiting for internet, plug it into the main LAN.
+
+3. **The addons** whose part of `bifrost.conf` is filled in:
+
+   ```bash
+   ./deploy.sh wifi-watch
+   ```
+
+   ```bash
+   ./deploy.sh wireguard
+   ```
+
+   The Pi's router side (`pi-gateway`) comes with the Pi, in section 4.
+
+From then on, one command re-applies everything: the main router, each AP
+(waiting for each reboot), then the addons in use:
+
 ```bash
 ./deploy.sh routers
-```
-
-This sets up the main router, then each AP (waiting for each reboot), then the
-addons whose part of the config is filled in. Each piece also runs on its own:
-
-```bash
-./deploy.sh main
-./deploy.sh ap <hostname>
-./deploy.sh wifi-watch
-./deploy.sh wireguard
-./deploy.sh pi-gateway
 ```
 
 **WireGuard clients:** `./deploy.sh wireguard client add <name>` prints a QR
 code, or add peers in LuCI. See
 [router/addon-wireguard](router/addon-wireguard/README.md).
-
-**A factory-fresh AP** boots at 192.168.1.1, the same address as the main
-router. Plug only your PC into it and run `./deploy.sh ap <hostname> --fresh`.
-It moves to its own IP mid-run. When it says it's waiting for internet, plug it
-into the main LAN.
 
 ## 4. Pi (optional)
 

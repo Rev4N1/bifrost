@@ -9,9 +9,9 @@ so a router flash can never silently take the Pi offline.
 | `usb0` as a LAN bridge port | `network` | br-lan device |
 | Static lease: Pi MAC → `192.168.1.5` | `dhcp` | `pigw_<name>` |
 
-Tailscale needs no port forward; the WireGuard one older versions made
-(`pigw_wireguard`) is removed. It never touches what `../setup/` owns. Any
-other lease for the same MAC or IP is replaced, so there's exactly one.
+Tailscale needs no port forward. It never touches what `../setup/` owns. Any
+other lease for the same MAC or IP (such as one made in LuCI) is replaced, so
+there's exactly one.
 
 ## Install
 
@@ -20,7 +20,7 @@ other lease for the same MAC or IP is replaced, so there's exactly one.
 ./deploy.sh pi-gateway          # after that, e.g. after every router flash
 ```
 
-`./deploy.sh routers` runs it too, once `PI_MAC` is set (part 8 of `bifrost.conf`). After a
+`./deploy.sh routers` runs it too, once `PI_MAC` is set (part 7 of `bifrost.conf`). After a
 deploy, the installer stays in `/tmp` on the router until its next reboot:
 
 ```bash

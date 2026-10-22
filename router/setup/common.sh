@@ -129,19 +129,6 @@ br_add_port() {
     fi
 }
 
-# Drop duplicate br-lan ports (earlier hand edits left some listed twice).
-br_dedupe_ports() {
-    _sec=$(br_lan_section)
-    [ -n "$_sec" ] || return
-    _ports=$(uci -q get "network.$_sec.ports")
-    _uniq=$(printf '%s\n' $_ports | awk '!seen[$0]++')
-    if [ "$(echo $_ports)" != "$(echo $_uniq)" ]; then
-        uci -q delete "network.$_sec.ports"
-        for _p in $_uniq; do uci add_list "network.$_sec.ports=$_p"; done
-        ok "removed duplicate br-lan ports"
-    fi
-}
-
 # Spread packet processing across all CPU cores.
 setup_packet_steering() {
     uci set network.globals.packet_steering='1'

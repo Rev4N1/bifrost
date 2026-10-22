@@ -35,7 +35,6 @@ WAN_PORT=$(uci -q get network.wan.device)
 uci -q delete network.wan
 uci -q delete network.wan6
 
-br_dedupe_ports
 [ -n "$WAN_PORT" ] && br_add_port "$WAN_PORT"
 
 uci set network.lan.proto='static'

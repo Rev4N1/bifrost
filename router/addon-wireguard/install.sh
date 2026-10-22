@@ -114,14 +114,6 @@ seed_interface() {
 
 seed_firewall() {
     hdr "Firewall"
-    # Nothing may forward the WireGuard port elsewhere (e.g. the old Pi
-    # gateway's forward): a DNAT would win over the router's own port.
-    for S in $(sections firewall redirect); do
-        [ "$(uci -q get "firewall.$S.src_dport")" = "$WG_PORT" ] || continue
-        uci delete "firewall.$S"
-        ok "removed port forward $S (udp/$WG_PORT is the router's now)"
-    done
-
     _z=$(wg_zone)
     if [ -n "$_z" ]; then
         ok "zone $(uci -q get "firewall.$_z.name") holds wg0 - left as it is (edit it in LuCI: Network > Firewall)"

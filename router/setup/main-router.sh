@@ -30,7 +30,6 @@ uci set network.lan.netmask="$NETMASK"
 uci -q delete network.lan.ip6assign
 uci set network.lan.delegate='0'
 uci -q delete network.globals.ula_prefix
-br_dedupe_ports
 # The WAN port must never also be a LAN bridge port.
 uci -q del_list "network.$(br_lan_section).ports=$WAN_DEVICE"
 setup_packet_steering

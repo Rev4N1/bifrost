@@ -14,10 +14,9 @@
 #
 #   ./deploy.sh sdcard                turn on USB gadget mode on a freshly flashed Pi card
 #   ./deploy.sh pi [--usb] [step]     run pi/setup.sh on the Pi (all|network|system|wifi|
-#                                     tailscale|firewall|poweroff; default: all)
-#   ./deploy.sh pi [--usb] wifi add SSID [PASSWORD] | forget SSID | list
+#                                     tailscale|poweroff; default: all)
 #
-#   --usb: the Pi is plugged into this PC, not the router.
+#   --usb: the Pi is plugged into this PC (first setup), not the router.
 # Every target is safe to re-run.
 # ========================================================
 set -euo pipefail
@@ -36,12 +35,12 @@ WATCH_VARS="BOT_TOKEN CHAT_ID PEOPLE PEOPLE_MAC AP_HOSTS POLL_INTERVAL MISSES_TO
             CONFIRM_ROUNDS CONFIRM_GAP ARPING_TRIES INITIAL_SETTLE AP_FAIL_GRACE"
 WG_VARS="WG_PORT VPN_SUBNET CLIENT_DNS VPN_LAN_ACCESS DUCKDNS_DOMAIN DUCKDNS_TOKEN"
 GATEWAY_VARS="PI_NAME PI_MAC PI_IP PI_PORT"
-PI_VARS="PI_NAME COUNTRY TS_AUTHKEY VPN_LAN_ACCESS PI_MAC HOST_MAC"
+PI_VARS="PI_NAME COUNTRY TS_AUTHKEY PI_MAC HOST_MAC"
 
 say() { printf '\n>>> %s\n' "$*"; }
 die() { printf 'deploy: %s\n' "$*" >&2; exit 1; }
 
-usage() { sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+usage() { sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 case "${1:-}" in
     routers|main|ap|wifi-watch|wireguard|pi-gateway|pi|sdcard) ;;
     *) usage ;;
@@ -52,7 +51,7 @@ esac
 if [ "$1" != sdcard ]; then
     [ -f "$CONF" ] || die "$CONF is missing: cp -n $CONF.example $CONF, then fill it in"
     set +u; . "./$CONF"; set -u
-    : "${APS:=}" "${BOT_TOKEN:=}" "${WG_PORT:=}" "${PI_NAME:=}" "${PI_MAC:=}" "${HOST_MAC:=}" "${PI_USER:=}" "${PI_PASSWORD:=}" "${ROOT_PASSWORD:=}"
+    : "${APS:=}" "${BOT_TOKEN:=}" "${WG_PORT:=}" "${PI_MAC:=}" "${HOST_MAC:=}" "${PI_USER:=}" "${PI_PASSWORD:=}" "${ROOT_PASSWORD:=}"
     PI_PORT=usb0
     AP_HOSTS=""
     for _e in $APS; do _r=${_e#*,}; AP_HOSTS="${AP_HOSTS:+$AP_HOSTS }${_r%%,*}"; done
@@ -150,16 +149,11 @@ ap_ip() {
     die "no AP named '$1' in APS (have: $(for e in $APS; do printf '%s ' "${e%%,*}"; done))"
 }
 
-# pi_login [--usb] - user@address of the Pi, with the deploy key trusted.
-# On USB it's at PI_USB_IP until "setup.sh network" makes usb0 a DHCP
-# client; after that, a PC finds it by name over IPv6 link-local.
+# pi_login [--usb] - user@address of the Pi, with the deploy key trusted
 pi_login() {
     require PI_USER PI_IP
     local addr=$PI_IP
-    if [ "${1:-}" = --usb ]; then
-        addr=$PI_USB_IP
-        port_open "$addr" || addr=$PI_NAME.local
-    fi
+    [ "${1:-}" = --usb ] && addr=$PI_USB_IP
     trust "$PI_USER@$addr" '$HOME/.ssh/authorized_keys' "$PI_PASSWORD" >&2
     echo "$PI_USER@$addr"
 }
