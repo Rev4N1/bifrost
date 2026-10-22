@@ -5,7 +5,7 @@
 # list in bifrost.conf (as network.conf, written by deploy.sh).
 #
 #   ./deploy.sh ap <hostname>  (from the PC; or, on the AP:)
-#   sh /tmp/setup/dumb-ap.sh <hostname>
+#   sh /tmp/bifrost-setup/dumb-ap.sh <hostname>
 #
 # A factory-fresh AP is still at 192.168.1.1 and moves to
 # its final IP mid-run, so the SSH session freezes; the

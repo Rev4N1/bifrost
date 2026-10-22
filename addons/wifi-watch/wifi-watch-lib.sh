@@ -72,26 +72,12 @@ ww_detect_timeout() {
     fi
 }
 
-# Sets SSH_BIN, SSH_KIND (dropbear|openssh), SSH_BATCH (never prompts)
-# and SSH_ASK (may prompt for a password). dbclient is preferred: it is
-# what OpenWrt ships, and the key is generated in its format to match.
+# Sets SSH_BIN (dropbear's dbclient, part of every OpenWrt image),
+# SSH_BATCH (never prompts) and SSH_ASK (may prompt for a password).
 ww_detect_ssh() {
-    SSH_BIN=""; SSH_KIND=""; SSH_BATCH=""; SSH_ASK=""
-    if command -v dbclient >/dev/null 2>&1; then
-        SSH_BIN=$(command -v dbclient); SSH_KIND=dropbear
-    elif command -v ssh >/dev/null 2>&1; then
-        SSH_BIN=$(command -v ssh)
-        if ssh -V 2>&1 | grep -qi dropbear; then SSH_KIND=dropbear; else SSH_KIND=openssh; fi
-    else
-        return 1
-    fi
-    if [ "$SSH_KIND" = dropbear ]; then
-        SSH_BATCH="-T -y -y -I 10"
-        SSH_ASK="-T -y -y"
-    else
-        SSH_BATCH="-T -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5"
-        SSH_ASK="-T -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10"
-    fi
+    SSH_BIN=$(command -v dbclient 2>/dev/null) || { SSH_BIN=""; return 1; }
+    SSH_BATCH="-T -y -y -I 10"
+    SSH_ASK="-T -y -y"
 }
 
 # ww_ap_run <host> <command> -> command output on stdout.

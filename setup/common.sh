@@ -17,6 +17,9 @@ trap '' HUP PIPE
 # Nothing here reads the terminal; a gone session must not
 # block a read either.
 exec </dev/null
+# This folder holds network.conf, with ROOT_PASSWORD and the
+# PPPoE login: delete the copy in /tmp once the run is over.
+case "$SETUP_DIR" in /tmp/*) trap 'rm -rf "$SETUP_DIR"' EXIT ;; esac
 
 say()  { printf '%s\n' "$*"; }
 ok()   { printf '  [ ok ] %s\n' "$*"; }

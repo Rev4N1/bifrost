@@ -19,7 +19,6 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-CONF=bifrost.conf
 FACTORY_IP=192.168.1.1
 
 # What each device gets from bifrost.conf. Everything else stays on the PC.
@@ -29,10 +28,6 @@ NET_VARS="SSID WPA_PSK COUNTRY MOBILITY_DOMAIN BW24 BW5 TXPOWER_24 MAIN_HOSTNAME
 WATCH_VARS="BOT_TOKEN CHAT_ID PEOPLE PEOPLE_MAC AP_IPS POLL_INTERVAL MISSES_TO_LEAVE
             CONFIRM_ROUNDS CONFIRM_GAP ARPING_TRIES INITIAL_SETTLE AP_FAIL_GRACE"
 WG_VARS="WG_PORT VPN_SUBNET CLIENT_DNS VPN_LAN_ACCESS DUCKDNS_DOMAIN DUCKDNS_TOKEN"
-
-say()  { printf '\n>>> %s\n' "$*"; }
-warn() { printf 'deploy: %s\n' "$*" >&2; }
-die()  { printf 'deploy: %s\n' "$*" >&2; exit 1; }
 
 usage() {
     cat <<'EOF'
@@ -53,73 +48,10 @@ case "${1:-}" in
     *)   usage ;;
 esac
 
-# ---- config ---------------------------------------------------------
+. lib/pc.sh
 
-[ -f "$CONF" ] || die "$CONF is missing: cp -n $CONF.example $CONF, then fill it in"
-set +u
-# shellcheck source=/dev/null  # the user's file, not in this repo
-. "./$CONF"
-set -u
-: "${APS:=}" "${BOT_TOKEN:=}" "${WG_PORT:=}" "${ROOT_PASSWORD:=}"
-[ "$(stat -c %a "$CONF")" = 600 ] \
-    || warn "chmod 600 $CONF (it holds every password)"
 AP_IPS=""
 for _e in $APS; do _r=${_e#*,}; AP_IPS="${AP_IPS:+$AP_IPS }${_r%%,*}"; done
-
-# require VAR... - each must be set and not CHANGE_ME
-require() {
-    local v
-    for v in "$@"; do
-        [ -n "${!v:-}" ] && [ "${!v}" != CHANGE_ME ] || die "set $v in $CONF"
-    done
-}
-
-# sq <value> - single-quoted for any POSIX shell (the routers run ash)
-sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
-
-# emit VAR... - shell assignments a device script can source
-emit() {
-    local v
-    for v in "$@"; do printf '%s=%s\n' "$v" "$(sq "${!v-}")"; done
-}
-
-# stage <dir> <config file name> <vars> - a temp copy of dir with its
-# config written in, deleted when deploy.sh exits. Prints the copy's path.
-STAGE=$(mktemp -d)
-trap 'rm -rf "$STAGE"' EXIT
-stage() {
-    rm -rf "${STAGE:?}/${1##*/}"
-    cp -r "$1" "$STAGE/"
-    # shellcheck disable=SC2086
-    emit $3 > "$STAGE/${1##*/}/$2"
-    chmod 600 "$STAGE/${1##*/}/$2"
-    echo "$STAGE/${1##*/}"
-}
-
-# ---- ssh ------------------------------------------------------------
-
-# Passwords only. With sshpass installed, ROOT_PASSWORD is typed for
-# you; without it, ssh asks (a factory-fresh router has none). Host keys
-# aren't pinned: every flash makes new ones (LAN only). On Linux, one
-# connection per host is reused for a minute, so a step asks once.
-SSH_OPTS=(-o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3
-          -o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
-          -o LogLevel=ERROR)
-if [ "$(uname -s)" = Linux ]; then
-    mkdir -p ~/.ssh && chmod 700 ~/.ssh
-    SSH_OPTS=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/cm-%r@%h:%p" -o ControlPersist=60 "${SSH_OPTS[@]}")
-fi
-
-# pw <ssh|scp> <args...> - run it, typing ROOT_PASSWORD when sshpass is there
-pw() {
-    if [ -n "$ROOT_PASSWORD" ] && command -v sshpass >/dev/null; then
-        SSHPASS=$ROOT_PASSWORD sshpass -e "$@"
-    else
-        "$@"
-    fi
-}
-
-port_open() { timeout 3 bash -c "</dev/tcp/$1/22" 2>/dev/null; }
 
 # hostname_at <ip> - the router's uci hostname, empty if nothing answers
 hostname_at() {
@@ -147,19 +79,6 @@ wait_reboot() {
     [ -n "${HOME:-}" ] && rm -f "$HOME/.ssh/cm-root@$1:22" "$HOME/.ssh/cm-root@$2:22" 2>/dev/null || true
     for _ in $(seq 45); do port_open "$1" || break; sleep 2; done
     wait_up "$2"
-}
-
-# router_run <ip> <local dir> <remote command>: copy dir to /tmp, run.
-# The copy logs in first, so a wrong password or an unreachable router
-# stops here (exit 2), before anything runs or is mistaken for a reboot.
-router_run() {
-    # /tmp survives until a reboot. scp -r into an existing /tmp/setup
-    # nests a second copy and leaves the old script in place, so clear the
-    # name first. Failure is fine: the scp below reports it.
-    pw ssh "${SSH_OPTS[@]}" "root@$1" "rm -rf /tmp/${2##*/}" >/dev/null 2>&1 || true
-    pw scp -O -q -r "${SSH_OPTS[@]}" "$2" "root@$1:/tmp/" \
-        || { warn "couldn't copy to $1 - wrong ROOT_PASSWORD, or not reachable?"; return 2; }
-    pw ssh -t "${SSH_OPTS[@]}" "root@$1" "$3"
 }
 
 # run_step <ip> <local dir> <remote command> <ip after>
@@ -213,7 +132,7 @@ cmd_main() {
         done
         say "main router $GW_IP"
         run_step "$GW_IP" "$(stage setup network.conf "$NET_VARS")" \
-            "sh /tmp/setup/main-router.sh" "$GW_IP"
+            "sh @DIR@/main-router.sh" "$GW_IP"
         return 0
     fi
     # A factory-reset main router still sits at 192.168.1.1. Don't reuse a
@@ -225,7 +144,7 @@ cmd_main() {
         if [ "$h" = OpenWrt ]; then
             say "main router is factory-fresh at $FACTORY_IP"
             run_step "$FACTORY_IP" "$(stage setup network.conf "$NET_VARS")" \
-                "sh /tmp/setup/main-router.sh" "$GW_IP"
+                "sh @DIR@/main-router.sh" "$GW_IP"
             SSH_OPTS=("${saved_opts[@]}")
             return 0
         fi
@@ -243,7 +162,7 @@ cmd_ap() {
     if port_open "$ip"; then
         say "AP $name ($ip)"
         run_step "$ip" "$(stage setup network.conf "$NET_VARS")" \
-            "sh /tmp/setup/dumb-ap.sh $name" "$ip"
+            "sh @DIR@/dumb-ap.sh $name" "$ip"
         return 0
     fi
 
@@ -261,7 +180,7 @@ cmd_ap() {
         echo "    (the session freezes, that's fine). When it says it's waiting for"
         echo "    internet, plug it into the main LAN."
         run_step "$FACTORY_IP" "$(stage setup network.conf "$NET_VARS")" \
-            "sh /tmp/setup/dumb-ap.sh $name" "$ip"
+            "sh @DIR@/dumb-ap.sh $name" "$ip"
         SSH_OPTS=("${saved_opts[@]}")
         return 0
     fi
@@ -281,7 +200,7 @@ cmd_wifi_watch() {
     say "wifi-watch addon on $GW_IP"
     # AP_PASSWORD lets it authorize its own key on the APs without asking.
     router_run "$GW_IP" "$(stage addons/wifi-watch wifi-watch.conf "$WATCH_VARS")" \
-        "AP_PASSWORD=$(sq "$ROOT_PASSWORD") sh /tmp/wifi-watch/install.sh" \
+        "AP_PASSWORD=$(sq "$ROOT_PASSWORD") sh @DIR@/install.sh" \
         || die "wifi-watch failed on $GW_IP"
 }
 
@@ -289,7 +208,7 @@ cmd_wireguard() {
     require WG_PORT VPN_SUBNET CLIENT_DNS
     say "wireguard addon on $GW_IP"
     router_run "$GW_IP" "$(stage addons/wireguard wireguard.conf "$WG_VARS")" \
-        "sh /tmp/wireguard/install.sh" \
+        "sh @DIR@/install.sh" \
         || die "wireguard failed on $GW_IP"
 }
 

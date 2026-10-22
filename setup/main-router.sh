@@ -5,7 +5,7 @@
 # network.conf, written by deploy.sh).
 #
 #   ./deploy.sh               (from the PC; or, on the router:)
-#   sh /tmp/setup/main-router.sh
+#   sh /tmp/bifrost-setup/main-router.sh
 #
 # Safe to re-run after every flash. Reboots at the end only if
 # something actually changed.

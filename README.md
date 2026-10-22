@@ -42,7 +42,8 @@ only file you need to rebuild everything.
 
 **By hand,** each step does what `deploy.sh` does: write a small config with
 only that router's part of `bifrost.conf`, copy the folder to the router's
-`/tmp`, and run the script there. First, once per PowerShell window, in the
+`/tmp`, and run the script there (each block uses its own folder name, so
+a second run never mixes with the first). First, once per PowerShell window, in the
 repo folder, define the config writer and each step's settings:
 
 ```powershell
@@ -86,7 +87,7 @@ named because it boots on the main router's address.
    By hand:
 
    ```powershell
-   Write-RouterConf setup/network.conf $net; ssh-keygen -R 192.168.1.1; scp -O -r setup root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/setup/main-router.sh"
+   Write-RouterConf setup/network.conf $net; ssh-keygen -R 192.168.1.1; scp -O -r setup root@192.168.1.1:/tmp/bifrost-setup; ssh -t root@192.168.1.1 "sh /tmp/bifrost-setup/main-router.sh"
    ```
 
 2. **Each AP.** A factory-fresh AP boots at 192.168.1.1, the same address as
@@ -111,7 +112,7 @@ named because it boots on the main router's address.
    uses its IP from `APS`):
 
    ```powershell
-   Write-RouterConf setup/network.conf $net; ssh-keygen -R 192.168.1.1; scp -O -r setup root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/setup/dumb-ap.sh <hostname>"
+   Write-RouterConf setup/network.conf $net; ssh-keygen -R 192.168.1.1; scp -O -r setup root@192.168.1.1:/tmp/bifrost-setup; ssh -t root@192.168.1.1 "sh /tmp/bifrost-setup/dumb-ap.sh <hostname>"
    ```
 
 3. **Once every AP is up**, run the same command again. This time it reaches
@@ -130,11 +131,11 @@ named because it boots on the main router's address.
    root password once):
 
    ```powershell
-   $aps = (Select-String -Path bifrost.conf -Pattern '^APS="([^"]*)"').Matches[0].Groups[1].Value; $apIps = ($aps -split '\s+' | Where-Object { $_ } | ForEach-Object { ($_ -split ',')[1] }) -join ' '; Write-RouterConf addons/wifi-watch/wifi-watch.conf $watch "AP_IPS=""$apIps"""; scp -O -r addons/wifi-watch root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/wifi-watch/install.sh"
+   $aps = (Select-String -Path bifrost.conf -Pattern '^APS="([^"]*)"').Matches[0].Groups[1].Value; $apIps = ($aps -split '\s+' | Where-Object { $_ } | ForEach-Object { ($_ -split ',')[1] }) -join ' '; Write-RouterConf addons/wifi-watch/wifi-watch.conf $watch "AP_IPS=""$apIps"""; $d = "/tmp/bifrost-wifi-watch-$(Get-Random)"; scp -O -r addons/wifi-watch "root@192.168.1.1:$d"; ssh -t root@192.168.1.1 "sh $d/install.sh"
    ```
 
    ```powershell
-   Write-RouterConf addons/wireguard/wireguard.conf $wg; scp -O -r addons/wireguard root@192.168.1.1:/tmp/; ssh -t root@192.168.1.1 "sh /tmp/wireguard/install.sh"
+   Write-RouterConf addons/wireguard/wireguard.conf $wg; $d = "/tmp/bifrost-wireguard-$(Get-Random)"; scp -O -r addons/wireguard "root@192.168.1.1:$d"; ssh -t root@192.168.1.1 "sh $d/install.sh"
    ```
 
 From then on, after a flash or a config change, it is always the same command:
@@ -152,11 +153,10 @@ one peer at a time from the PC:
 ./addons/wireguard/client.sh revoke <name>
 ```
 
-`add` saves `~/wg-<name>.conf` (delete it once imported). By hand (after
-`./deploy.sh` staged the addon; a reboot clears `/tmp`):
+`add` saves `~/wg-<name>.conf` (delete it once imported). By hand:
 
 ```powershell
-ssh -t root@192.168.1.1 "sh /tmp/wireguard/install.sh client add <name>"; scp -O root@192.168.1.1:/tmp/wg-<name>.conf .; ssh root@192.168.1.1 "rm -f /tmp/wg-<name>.conf"
+Write-RouterConf addons/wireguard/wireguard.conf $wg; $d = "/tmp/bifrost-wireguard-$(Get-Random)"; scp -O -r addons/wireguard "root@192.168.1.1:$d"; ssh -t root@192.168.1.1 "sh $d/install.sh client add <name>"; scp -O root@192.168.1.1:/tmp/wg-<name>.conf .; ssh root@192.168.1.1 "rm -f /tmp/wg-<name>.conf"
 ```
 
 See [addons/wireguard](addons/wireguard/README.md).
@@ -197,6 +197,7 @@ address with the old config.
 ```
 bifrost.conf.example      every setting, in the order you fill them in
 deploy.sh                 the one command you run on the PC
+lib/pc.sh                 PC-side helpers deploy.sh and client.sh share
 setup/                    main router + dumb APs: network, wireless, dhcp, firewall
 addons/
   wifi-watch/             the Telegram bot (own README)
@@ -206,7 +207,9 @@ addons/
 
 - **Each device only gets its own part of `bifrost.conf`.** `deploy.sh` writes
   a small config for each one into a temporary copy on the PC, deleted when it
-  exits. The Telegram token never reaches the APs, for example.
+  exits, and copies it to `/tmp/bifrost-<part>` on the router. The Telegram
+  token never reaches the APs, for example, and the router setup deletes its
+  copy (with the root and PPPoE passwords) as soon as it finishes.
 - **Passwords, no SSH keys.** `deploy.sh` logs in with `ROOT_PASSWORD`. With
   `sshpass` installed it types it for you; without it, SSH asks (once per
   step on Linux, where the connection is reused for a minute). A

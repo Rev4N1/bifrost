@@ -58,7 +58,7 @@ The addon is part of every deploy, once `BOT_TOKEN` is set. It's idempotent,
 so re-run it after every flash or after editing anything here,
 `bifrost.conf` included. Each run:
 
-- installs `curl`, `arping`, `timeout` and an SSH client if missing (a flash
+- installs `curl`, `arping` and `timeout` if missing (a flash
   removes them)
 - reuses or creates `/root/.ssh/wifi-watch` and authorizes it on each AP that
   doesn't already accept it, using `ROOT_PASSWORD` (never written to disk)
@@ -72,8 +72,8 @@ After a deploy, the installer stays in `/tmp` on the router until its next
 reboot:
 
 ```bash
-ssh root@192.168.1.1 sh /tmp/wifi-watch/install.sh --check      # diagnose
-ssh root@192.168.1.1 sh /tmp/wifi-watch/install.sh --uninstall  # remove (leaves the SSH key)
+ssh root@192.168.1.1 sh /tmp/bifrost-wifi-watch/install.sh --check      # diagnose
+ssh root@192.168.1.1 sh /tmp/bifrost-wifi-watch/install.sh --uninstall  # remove (leaves the SSH key)
 ```
 
 ## Operating

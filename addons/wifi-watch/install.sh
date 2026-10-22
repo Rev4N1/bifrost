@@ -59,13 +59,7 @@ key_works() {
     ww_answered "$(ww_ap_run "$1" 'echo __WIFIWATCH_OK__')"
 }
 
-pubkey() {
-    if [ -f "$SSH_KEY.pub" ]; then
-        cat "$SSH_KEY.pub"
-    else
-        dropbearkey -y -f "$SSH_KEY" 2>/dev/null | grep '^ssh-'
-    fi
-}
+pubkey() { dropbearkey -y -f "$SSH_KEY" 2>/dev/null | grep '^ssh-'; }
 
 # ---- steps ---------------------------------------------------------
 
@@ -124,13 +118,8 @@ install_deps() {
     need timeout coreutils-timeout "relying on the ping pre-check to bound AP queries"
     ww_detect_timeout
 
-    if ww_detect_ssh; then
-        ok "ssh client: $SSH_BIN ($SSH_KIND)"
-    else
-        $PKG_ADD openssh-client >/dev/null 2>&1
-        ww_detect_ssh && ok "ssh client installed: $SSH_BIN" \
-            || fail "no ssh client - dumb APs cannot be queried"
-    fi
+    ww_detect_ssh && ok "ssh client: $SSH_BIN" \
+        || fail "no dbclient (dropbear) - dumb APs cannot be queried"
 }
 
 make_key() {
@@ -140,13 +129,7 @@ make_key() {
         ok "reusing $SSH_KEY"
         return
     fi
-    # Generate in the format of the client that will use it: dbclient
-    # needs a dropbear key, openssh needs an openssh one.
-    if [ "$SSH_KIND" = dropbear ] && command -v dropbearkey >/dev/null 2>&1; then
-        dropbearkey -t ed25519 -f "$SSH_KEY" >/dev/null 2>&1
-    elif command -v ssh-keygen >/dev/null 2>&1; then
-        ssh-keygen -t ed25519 -N '' -C wifi-watch -f "$SSH_KEY" >/dev/null 2>&1
-    fi
+    dropbearkey -t ed25519 -f "$SSH_KEY" >/dev/null 2>&1
     if [ -f "$SSH_KEY" ]; then
         chmod 600 "$SSH_KEY"
         ok "generated $SSH_KEY"
@@ -180,7 +163,7 @@ push_key() {
          sort -u /etc/dropbear/authorized_keys -o /etc/dropbear/authorized_keys &&
          chmod 600 /etc/dropbear/authorized_keys'
 
-    if [ -n "${AP_PASSWORD:-}" ] && [ "$SSH_KIND" = dropbear ]; then
+    if [ -n "${AP_PASSWORD:-}" ]; then
         # dbclient takes the password from the environment.
         say "  $_h - authorizing"
         printf '%s\n' "$_pub" | DROPBEAR_PASSWORD="$AP_PASSWORD" \
@@ -225,7 +208,7 @@ install_files() {
 
     # Keep the config and the AP key across sysupgrade (keep settings),
     # so a flash doesn't force re-authorizing the APs.
-    for P in "$CONF_PATH" "$SSH_KEY" "$SSH_KEY.pub"; do
+    for P in "$CONF_PATH" "$SSH_KEY"; do
         [ -e "$P" ] || continue
         grep -qxF "$P" /etc/sysupgrade.conf 2>/dev/null || echo "$P" >> /etc/sysupgrade.conf
     done

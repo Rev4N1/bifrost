@@ -16,12 +16,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-CONF=bifrost.conf
 WG_VARS="WG_PORT VPN_SUBNET CLIENT_DNS VPN_LAN_ACCESS DUCKDNS_DOMAIN DUCKDNS_TOKEN"
-
-say()  { printf '\n>>> %s\n' "$*"; }
-warn() { printf 'client: %s\n' "$*" >&2; }
-die()  { printf 'client: %s\n' "$*" >&2; exit 1; }
 
 usage() {
     cat <<'EOF'
@@ -38,6 +33,9 @@ EOF
 }
 
 [ "$#" -ge 1 ] || usage
+. lib/pc.sh
+: "${VPN_SUBNET:=}" "${CLIENT_DNS:=}"
+
 case "$1" in
     add)    [ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage
             case "$2" in
@@ -49,72 +47,23 @@ case "$1" in
     *)      usage ;;
 esac
 
-# ---- config ---------------------------------------------------------
-
-[ -f "$CONF" ] || die "$CONF is missing: cp -n $CONF.example $CONF, then fill it in"
-set +u
-# shellcheck source=/dev/null  # the user's file, not in this repo
-. "./$CONF"
-set -u
-: "${GW_IP:=}" "${ROOT_PASSWORD:=}" "${WG_PORT:=}" "${VPN_SUBNET:=}" "${CLIENT_DNS:=}"
-
-require() {
-    local v
-    for v in "$@"; do
-        [ -n "${!v:-}" ] && [ "${!v}" != CHANGE_ME ] || die "set $v in $CONF"
-    done
-}
-
-sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
-
-emit() {
-    local v
-    for v in "$@"; do printf '%s=%s\n' "$v" "$(sq "${!v-}")"; done
-}
-
-# ---- ssh ------------------------------------------------------------
-
-SSH_OPTS=(-o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3
-          -o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
-          -o LogLevel=ERROR)
-if [ "$(uname -s)" = Linux ]; then
-    mkdir -p ~/.ssh && chmod 700 ~/.ssh
-    SSH_OPTS=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/cm-%r@%h:%p" -o ControlPersist=60 "${SSH_OPTS[@]}")
-fi
-
-pw() {
-    if [ -n "$ROOT_PASSWORD" ] && command -v sshpass >/dev/null; then
-        SSHPASS=$ROOT_PASSWORD sshpass -e "$@"
-    else
-        "$@"
-    fi
-}
-
 # ---- run ------------------------------------------------------------
 
 require GW_IP ROOT_PASSWORD WG_PORT VPN_SUBNET CLIENT_DNS
 
-STAGE=$(mktemp -d)
-trap 'rm -rf "$STAGE"' EXIT
-cp -r addons/wireguard "$STAGE/"
-# shellcheck disable=SC2086
-emit $WG_VARS > "$STAGE/wireguard/wireguard.conf"
-chmod 600 "$STAGE/wireguard/wireguard.conf"
+DIR=$(stage addons/wireguard wireguard.conf "$WG_VARS")
 
-# router_run <remote command>: copy the addon to /tmp, run it there.
-router_run() {
-    pw scp -O -q -r "${SSH_OPTS[@]}" "$STAGE/wireguard" "root@$GW_IP:/tmp/"
-    pw ssh -t "${SSH_OPTS[@]}" "root@$GW_IP" "$1"
-}
+# wg_run <install.sh arguments> - run the router-side installer with them
+wg_run() { router_run "$GW_IP" "$DIR" "sh @DIR@/install.sh $*"; }
 
 case "$1" in
     add)
         name=$2; ip=${3:-}
         say "client $name on $GW_IP"
         if [ -n "$ip" ]; then
-            router_run "sh /tmp/wireguard/install.sh client add $(sq "$name") $(sq "$ip")"
+            wg_run client add "$(sq "$name")" "$(sq "$ip")"
         else
-            router_run "sh /tmp/wireguard/install.sh client add $(sq "$name")"
+            wg_run client add "$(sq "$name")"
         fi
 
         # The router keeps only the public key, and deletes this file.
@@ -127,10 +76,10 @@ case "$1" in
         ;;
     revoke)
         say "revoke client $2 on $GW_IP"
-        router_run "sh /tmp/wireguard/install.sh client revoke $(sq "$2")"
+        wg_run client revoke "$(sq "$2")"
         ;;
     list)
         say "clients on $GW_IP"
-        router_run "sh /tmp/wireguard/install.sh client list"
+        wg_run client list
         ;;
 esac
