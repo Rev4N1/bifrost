@@ -5,7 +5,7 @@
 #   cp -n bifrost.conf.example bifrost.conf
 #
 # Git-ignored; keep a backup somewhere safe (it holds every
-# password). Fill in every CHANGE_ME. Parts 5, 6 and 7 are
+# password). Fill in every CHANGE_ME. Parts 5 and 6 are
 # optional and stay off while left empty.
 # ========================================================
 
@@ -92,23 +92,3 @@ VPN_LAN_ACCESS=""           # LAN services VPN clients may reach, "ip:proto:port
 # DuckDNS keeps <subdomain>.duckdns.org pointing at your home IP (empty = clients use the WAN IP)
 DUCKDNS_DOMAIN=""           # subdomain only, without .duckdns.org
 DUCKDNS_TOKEN=""
-
-
-# ======== 7. Pi Tailscale stick (optional, see pi/README.md) ========
-
-# Login: the user you create in Raspberry Pi Imager. With the password
-# here, deploy.sh installs its SSH key once and answers sudo itself.
-PI_USER=""
-PI_PASSWORD=""
-
-PI_NAME="pi-zero-2w"
-PI_IP="192.168.1.5"
-
-# Tailscale auth key (admin console > Settings > Keys), used only for the
-# first login. Empty = the Pi prints a login link instead.
-TS_AUTHKEY=""
-
-# Filled in by "./deploy.sh pi-gateway"; the router side stays off until then.
-# Kept here so a reflashed Pi gets the same MACs and the router lease still matches.
-PI_MAC=""
-HOST_MAC=""
