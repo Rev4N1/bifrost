@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ========================================================
 # deploy.sh - the one command you run on the PC.
-# Linux (bash), or Git Bash on Windows. Settings: bifrost.conf.
+# Linux (bash); on Windows, README.md has the same steps by hand.
+# Settings: bifrost.conf.
 #
 #   ./deploy.sh routers               main router, every AP, then the addons in use
 #   ./deploy.sh main                  main router only
@@ -30,7 +31,7 @@ WG_VARS="WG_PORT VPN_SUBNET CLIENT_DNS VPN_LAN_ACCESS DUCKDNS_DOMAIN DUCKDNS_TOK
 say() { printf '\n>>> %s\n' "$*"; }
 die() { printf 'deploy: %s\n' "$*" >&2; exit 1; }
 
-usage() { sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+usage() { sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 case "${1:-}" in
     routers|main|ap|wifi-watch|wireguard) ;;
     *) usage ;;
