@@ -59,7 +59,7 @@ key_works() {
     ww_answered "$(ww_ap_run "$1" 'echo __WIFIWATCH_OK__')"
 }
 
-pubkey() { dropbearkey -y -f "$SSH_KEY" 2>/dev/null | grep '^ssh-'; }
+pubkey() { dropbearkey -y -f "$SSH_KEY" </dev/null 2>/dev/null | grep '^ssh-'; }
 
 # ---- steps ---------------------------------------------------------
 
@@ -125,10 +125,12 @@ install_deps() {
 make_key() {
     hdr "SSH key"
     mkdir -p /root/.ssh && chmod 700 /root/.ssh
-    if [ -f "$SSH_KEY" ]; then
+    if [ -f "$SSH_KEY" ] && [ -n "$(pubkey)" ]; then
+        chmod 600 "$SSH_KEY"
         ok "reusing $SSH_KEY"
         return
     fi
+    rm -f "$SSH_KEY"
     dropbearkey -t ed25519 -f "$SSH_KEY" >/dev/null 2>&1
     if [ -f "$SSH_KEY" ]; then
         chmod 600 "$SSH_KEY"

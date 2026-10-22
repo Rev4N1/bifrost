@@ -142,10 +142,18 @@ seed_firewall() {
         _n=0
         for E in $VPN_LAN_ACCESS; do
             _ip=${E%%:*}; _r=${E#*:}; _proto=${_r%%:*}; _port=${_r#*:}
-            case "$_proto:$_port" in
-                tcp:[0-9]*|udp:[0-9]*) ;;
-                *) die "bad VPN_LAN_ACCESS entry '$E' (want ip:tcp|udp:port)" ;;
+            case "$_ip" in
+                '' | *[!0-9.]*) die "bad VPN_LAN_ACCESS IP '$_ip' (want ip:tcp|udp:port)" ;;
             esac
+            case "$_proto" in
+                tcp | udp) ;;
+                *) die "bad VPN_LAN_ACCESS protocol '$_proto' (want tcp or udp)" ;;
+            esac
+            case "$_port" in
+                '' | *[!0-9]*) die "bad VPN_LAN_ACCESS port '$_port'" ;;
+            esac
+            [ "$_port" -ge 1 ] && [ "$_port" -le 65535 ] \
+                || die "VPN_LAN_ACCESS port $_port must be 1-65535"
             _n=$((_n + 1))
             uci set "firewall.wgvpn_lan$_n=rule"
             uci set "firewall.wgvpn_lan$_n.name=vpn-$_ip-$_proto-$_port"
@@ -195,7 +203,7 @@ seed_ddns() {
         uci set ddns.duckdns.ip_source='network'
         uci set ddns.duckdns.ip_network='wan'
         uci set ddns.duckdns.use_https='1'
-        uci set ddns.duckdns.cacert='/etc/ssl/certs'
+        uci set ddns.duckdns.cacert='/etc/ssl/certs/ca-certificates.crt'
         uci commit ddns
         ok "$DUCKDNS_DOMAIN.duckdns.org follows the WAN address"
     fi

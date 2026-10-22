@@ -86,9 +86,12 @@ sync_time() {
     done
     if kill -0 "$_pid" 2>/dev/null; then
         kill "$_pid" 2>/dev/null
+        wait "$_pid" 2>/dev/null
         warn "NTP sync timed out"
-    else
+    elif wait "$_pid"; then
         ok "clock synced: $(date)"
+    else
+        warn "NTP sync failed"
     fi
 }
 
@@ -119,6 +122,11 @@ install_full_wpad() {
 install_usteer() {
     hdr "usteer"
     if apk list --installed 2>/dev/null | grep -q '^usteer-[0-9]'; then
+        # Installed by an earlier run, but that run may have stopped before
+        # enabling it, or a reboot may have left it off. Converge.
+        /etc/init.d/usteer enable >/dev/null 2>&1
+        /etc/init.d/usteer running >/dev/null 2>&1 \
+            || /etc/init.d/usteer start >/dev/null 2>&1
         ok "usteer already installed"
         return
     fi

@@ -50,6 +50,18 @@ esac
 # ---- run ------------------------------------------------------------
 
 require GW_IP ROOT_PASSWORD WG_PORT VPN_SUBNET CLIENT_DNS
+is_ipv4 "$GW_IP" || die "GW_IP must be an IPv4 address"
+is_uint "$WG_PORT" && [ "$WG_PORT" -ge 1 ] && [ "$WG_PORT" -le 65535 ] \
+    || die "WG_PORT must be 1-65535"
+case "$VPN_SUBNET" in
+    *"/24") ;;
+    *) die "VPN_SUBNET must be a /24 (e.g. 10.7.0.0/24)" ;;
+esac
+is_ipv4 "${VPN_SUBNET%/*}" || die "VPN_SUBNET has no IPv4 address"
+case "${VPN_SUBNET%/*}" in
+    *.0) ;;
+    *) die "VPN_SUBNET must start at .0 (e.g. 10.7.0.0/24)" ;;
+esac
 
 DIR=$(stage addons/wireguard wireguard.conf "$WG_VARS")
 
@@ -67,9 +79,9 @@ case "$1" in
         fi
 
         # The router keeps only the public key, and deletes this file.
-        pw scp -O -q "${SSH_OPTS[@]}" "root@$GW_IP:/tmp/wg-$name.conf" ~/ \
+        pw "$GW_IP" scp -O -q "${SSH_OPTS[@]}" "root@$GW_IP:/tmp/wg-$name.conf" ~/ \
             || die "client added, but ~/wg-$name.conf could not be fetched"
-        pw ssh "${SSH_OPTS[@]}" "root@$GW_IP" "rm -f /tmp/wg-$name.conf" || true
+        pw "$GW_IP" ssh "${SSH_OPTS[@]}" "root@$GW_IP" "rm -f /tmp/wg-$name.conf" || true
         say "saved ~/wg-$name.conf (has the private key)"
         echo "    Fedora: sudo nmcli connection import type wireguard file ~/wg-$name.conf"
         echo "    Other:  import it in the WireGuard app, then delete the file"

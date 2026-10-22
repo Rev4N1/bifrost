@@ -19,7 +19,8 @@ set +u
 # shellcheck source=/dev/null  # the user's file, not in this repo
 . "./$CONF"
 set -u
-: "${GW_IP:=}" "${APS:=}" "${ROOT_PASSWORD:=}" "${BOT_TOKEN:=}" "${WG_PORT:=}"
+: "${GW_IP:=}" "${APS:=}" "${ROOT_PASSWORD:=}" "${ROOT_PASSWORD_CURRENT:=}" \
+  "${BOT_TOKEN:=}" "${WG_PORT:=}"
 [ "$(stat -c %a "$CONF")" = 600 ] || warn "chmod 600 $CONF (it holds every password)"
 
 # require VAR... - each must be set and not CHANGE_ME
@@ -29,6 +30,24 @@ require() {
         [ -n "${!v:-}" ] && [ "${!v}" != CHANGE_ME ] || die "set $v in $CONF"
     done
 }
+
+# Small validators shared by deploy.sh and client.sh. They catch a typo
+# before it reaches a router's networking or Wi-Fi config.
+is_ipv4() {
+    local IFS=. _o
+    set -- $1
+    [ "$#" -eq 4 ] || return 1
+    for _o; do
+        case "$_o" in '' | *[!0-9]*) return 1 ;; esac
+        [ "$_o" -le 255 ] || return 1
+    done
+}
+
+is_hostname() {
+    case "$1" in '' | -* | *- | *[!a-z0-9-]*) return 1 ;; esac
+}
+
+is_uint() { case "$1" in '' | *[!0-9]*) return 1 ;; esac; }
 
 # sq <value> - single-quoted for any POSIX shell (the routers run ash)
 sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
@@ -66,10 +85,44 @@ if [ "$(uname -s)" = Linux ]; then
     SSH_OPTS=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/cm-%r@%h:%p" -o ControlPersist=60 "${SSH_OPTS[@]}")
 fi
 
-# pw <ssh|scp> <args...> - run it, typing ROOT_PASSWORD when sshpass is there
+# pw_select <host> - decide once per host how to authenticate.
+# ROOT_PASSWORD is the password to SET on the routers. On a factory image
+# the current password is empty, so using the target one for the first
+# login would fail. Probe with ROOT_PASSWORD_CURRENT (if set), then with
+# ROOT_PASSWORD, and otherwise let ssh ask (or accept the empty password).
+declare -A PW_MODES=() PW_PASSES=()
+PW_MODE=""
+PW_PASS=""
+pw_select() {
+    local _h=$1 _p
+    if [ -n "${PW_MODES[$_h]:-}" ]; then
+        PW_MODE=${PW_MODES[$_h]}
+        PW_PASS=${PW_PASSES[$_h]:-}
+        return 0
+    fi
+    PW_MODE=prompt
+    PW_PASS=""
+    if command -v sshpass >/dev/null 2>&1; then
+        for _p in "$ROOT_PASSWORD_CURRENT" "$ROOT_PASSWORD"; do
+            [ -n "$_p" ] || continue
+            if SSHPASS=$_p sshpass -e ssh "${SSH_OPTS[@]}" "root@$_h" true 2>/dev/null; then
+                PW_MODE=sshpass
+                PW_PASS=$_p
+                break
+            fi
+        done
+    fi
+    PW_MODES[$_h]=$PW_MODE
+    PW_PASSES[$_h]=$PW_PASS
+}
+
+# pw <host> <ssh|scp> <args...> - run it with the password that works
 pw() {
-    if [ -n "$ROOT_PASSWORD" ] && command -v sshpass >/dev/null; then
-        SSHPASS=$ROOT_PASSWORD sshpass -e "$@"
+    local _h=$1
+    shift
+    pw_select "$_h"
+    if [ "$PW_MODE" = sshpass ]; then
+        SSHPASS=$PW_PASS sshpass -e "$@"
     else
         "$@"
     fi
@@ -86,8 +139,8 @@ port_open() { timeout 3 bash -c "</dev/tcp/$1/22" 2>/dev/null; }
 # (exit 2), before anything runs or is mistaken for a reboot.
 router_run() {
     local dir="/tmp/bifrost-${2##*/}"
-    pw ssh "${SSH_OPTS[@]}" "root@$1" "rm -rf $dir" >/dev/null 2>&1 || true
-    pw scp -O -q -r "${SSH_OPTS[@]}" "$2" "root@$1:$dir" \
+    pw "$1" ssh "${SSH_OPTS[@]}" "root@$1" "rm -rf $dir" >/dev/null 2>&1 || true
+    pw "$1" scp -O -q -r "${SSH_OPTS[@]}" "$2" "root@$1:$dir" \
         || { warn "couldn't copy to $1 - wrong ROOT_PASSWORD, or not reachable?"; return 2; }
-    pw ssh -t "${SSH_OPTS[@]}" "root@$1" "${3//@DIR@/$dir}"
+    pw "$1" ssh -t "${SSH_OPTS[@]}" "root@$1" "${3//@DIR@/$dir}"
 }
