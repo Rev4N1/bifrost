@@ -279,6 +279,7 @@ cmd_sdcard() {
 # command and are deleted after. With PI_PASSWORD set, sudo is answered
 # from it; otherwise sudo asks.
 cmd_pi() {
+    require PI_NAME COUNTRY
     local where=""
     [ "${1:-}" = --usb ] && { where=--usb; shift; }
     local login s c args unlock=""

@@ -48,12 +48,10 @@ match_person_mac() {
 
 # ---- ssh plumbing --------------------------------------------------
 
-# busybox timeout has used both "timeout SECS CMD" and "timeout -t SECS CMD"
+# Without a working timeout, ww_ap_run's ping gate still bounds dead APs.
 ww_detect_timeout() {
     if timeout 1 true >/dev/null 2>&1; then
         TIMEOUT_PREFIX="timeout $SSH_TIMEOUT"
-    elif timeout -t 1 true >/dev/null 2>&1; then
-        TIMEOUT_PREFIX="timeout -t $SSH_TIMEOUT"
     else
         TIMEOUT_PREFIX=""
     fi
