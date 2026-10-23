@@ -174,20 +174,10 @@ setup_wireless() {
     _host="$1"
     for R in radio0 radio1 radio2; do
         uci -q get "wireless.$R" >/dev/null || continue
-        # 25.12 names the band; a config from an older flash may only
-        # have hwmode, so fall back to that instead of skipping the radio.
-        _band=$(uci -q get "wireless.$R.band")
-        if [ -z "$_band" ]; then
-            case "$(uci -q get "wireless.$R.hwmode")" in
-                11a)     _band=5g ;;
-                11b|11g) _band=2g ;;
-            esac
-        fi
-        case "$_band" in
+        case "$(uci -q get "wireless.$R.band")" in
             2g) _ch="$2"; _bw="$3"; _sfx=24; _txp="$TXPOWER_24" ;;
             5g) _ch="$4"; _bw="$5"; _sfx=5;  _txp="" ;;
-            6g) warn "$R: 6 GHz radio left untouched"; continue ;;
-            *)  warn "$R: unknown band, left untouched"; continue ;;
+            *)  warn "$R: not 2.4 or 5 GHz, left untouched"; continue ;;
         esac
 
         uci set "wireless.$R.disabled=0"

@@ -19,8 +19,8 @@ set +u
 # shellcheck source=/dev/null  # the user's file, not in this repo
 . "./$CONF"
 set -u
-: "${GW_IP:=}" "${APS:=}" "${ROOT_PASSWORD:=}" "${ROOT_PASSWORD_CURRENT:=}" \
-  "${BOT_TOKEN:=}" "${WG_PORT:=}"
+: "${GW_IP:=}" "${APS:=}" "${ROOT_PASSWORD:=}" "${BOT_TOKEN:=}" "${WG_PORT:=}" \
+  "${VPN_SUBNET:=}" "${CLIENT_DNS:=}"
 [ "$(stat -c %a "$CONF")" = 600 ] || warn "chmod 600 $CONF (it holds every password)"
 
 # require VAR... - each must be set and not CHANGE_ME
@@ -48,6 +48,18 @@ is_hostname() {
 }
 
 is_uint() { case "$1" in '' | *[!0-9]*) return 1 ;; esac; }
+
+# check_wg - part 6 of bifrost.conf, before it reaches the router
+check_wg() {
+    require GW_IP WG_PORT VPN_SUBNET CLIENT_DNS
+    is_ipv4 "$GW_IP" || die "GW_IP must be an IPv4 address"
+    is_uint "$WG_PORT" && [ "$WG_PORT" -ge 1 ] && [ "$WG_PORT" -le 65535 ] \
+        || die "WG_PORT must be 1-65535"
+    case "$VPN_SUBNET" in
+        *.0/24) is_ipv4 "${VPN_SUBNET%/*}" || die "VPN_SUBNET has no IPv4 address" ;;
+        *) die "VPN_SUBNET must be a /24 starting at .0 (e.g. 10.7.0.0/24)" ;;
+    esac
+}
 
 # sq <value> - single-quoted for any POSIX shell (the routers run ash)
 sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
@@ -86,12 +98,9 @@ if [ "$(uname -s)" = Linux ]; then
 fi
 
 # pw_select <host> - decide once per host how to authenticate.
-# ROOT_PASSWORD is the password to SET on the routers. On a factory image
-# the current password is empty, so using the target one for the first
-# login would fail. Probe with ROOT_PASSWORD_CURRENT (if set), then with
-# ROOT_PASSWORD, then with an empty password (a factory image, which
-# OpenWrt's dropbear accepts until a root password is set), and
-# otherwise let ssh ask.
+# A router's password is either ROOT_PASSWORD (set up) or empty (a
+# factory image, which OpenWrt's dropbear accepts until a root password
+# is set). Probe both with sshpass; otherwise let ssh ask.
 declare -A PW_MODES=() PW_PASSES=()
 PW_MODE=""
 PW_PASS=""
@@ -105,17 +114,11 @@ pw_select() {
     PW_MODE=prompt
     PW_PASS=""
     if command -v sshpass >/dev/null 2>&1; then
-        for _p in "$ROOT_PASSWORD_CURRENT" "$ROOT_PASSWORD"; do
-            [ -n "$_p" ] || continue
-            if SSHPASS=$_p sshpass -e ssh "${SSH_OPTS[@]}" "root@$_h" true 2>/dev/null; then
-                PW_MODE=sshpass
-                PW_PASS=$_p
-                break
-            fi
-        done
-        # A factory image has no root password at all, and dropbear allows
-        # an empty one until passwd runs. Try that before asking.
-        if [ "$PW_MODE" = prompt ] \
+        if [ -n "$ROOT_PASSWORD" ] \
+            && SSHPASS=$ROOT_PASSWORD sshpass -e ssh "${SSH_OPTS[@]}" "root@$_h" true 2>/dev/null; then
+            PW_MODE=sshpass
+            PW_PASS=$ROOT_PASSWORD
+        elif [ "$PW_MODE" = prompt ] \
             && SSHPASS='' sshpass -e ssh "${SSH_OPTS[@]}" "root@$_h" true 2>/dev/null; then
             PW_MODE=sshpass
             PW_PASS=""

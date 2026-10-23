@@ -287,19 +287,7 @@ cmd_wifi_watch() {
 }
 
 cmd_wireguard() {
-    require WG_PORT VPN_SUBNET CLIENT_DNS
-    is_uint "$WG_PORT" && [ "$WG_PORT" -ge 1 ] && [ "$WG_PORT" -le 65535 ] \
-        || die "WG_PORT must be 1-65535"
-    case "$VPN_SUBNET" in
-        *"/24") ;;
-        *) die "VPN_SUBNET must be a /24 (e.g. 10.7.0.0/24)" ;;
-    esac
-    is_ipv4 "${VPN_SUBNET%/*}" || die "VPN_SUBNET has no IPv4 address"
-    case "${VPN_SUBNET%/*}" in
-        *.0) ;;
-        *) die "VPN_SUBNET must start at .0 (e.g. 10.7.0.0/24)" ;;
-    esac
-    is_ipv4 "$GW_IP" || die "GW_IP must be an IPv4 address"
+    check_wg
     say "wireguard addon on $GW_IP"
     router_run "$GW_IP" "$(stage addons/wireguard wireguard.conf "$WG_VARS")" \
         "sh @DIR@/install.sh" \

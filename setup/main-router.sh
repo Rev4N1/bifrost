@@ -93,7 +93,7 @@ fi
 hdr "UPnP"
 if [ "${UPNP:-0}" = 1 ]; then
     if [ ! -x /etc/init.d/miniupnpd ]; then
-        apk add luci-app-upnp >/dev/null 2>&1 || apk add miniupnpd-nftables >/dev/null 2>&1
+        apk add luci-app-upnp >/dev/null 2>&1
     fi
     if [ -x /etc/init.d/miniupnpd ]; then
         uci -q get upnpd.config >/dev/null || uci set upnpd.config=upnpd

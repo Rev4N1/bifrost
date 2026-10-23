@@ -210,11 +210,10 @@ addons/
   exits, and copies it to `/tmp/bifrost-<part>` on the router. The Telegram
   token never reaches the APs, for example, and the router setup deletes its
   copy (with the root and PPPoE passwords) as soon as it finishes.
-- **Passwords, no SSH keys.** `deploy.sh` tries `ROOT_PASSWORD_CURRENT` (if
-  set), then `ROOT_PASSWORD`, then an empty password (what a factory image
-  has), with `sshpass`. If none logs in, SSH asks (once per step on Linux,
-  where the connection is reused for a minute). After the first deploy, set
-  `ROOT_PASSWORD_CURRENT` to `ROOT_PASSWORD` for non-interactive runs.
+- **Passwords, no SSH keys.** With `sshpass`, `deploy.sh` logs in with
+  `ROOT_PASSWORD`, or an empty password (what a factory image has). Without
+  it, SSH asks (once per step on Linux, where the connection is reused for a
+  minute).
 - **Separate pieces.** `setup/` never references an addon, and the
   addons never touch what it owns, so each one runs on its own, in any order.
 - **A router only reboots when it has to.** Each setup script hashes `uci
