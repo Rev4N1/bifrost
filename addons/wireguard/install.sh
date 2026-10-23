@@ -378,15 +378,15 @@ client_add() {
     uci commit network
     ifup wg0 >/dev/null 2>&1
 
-    # Split tunnel: only the router's VPN address (to ping it) and the LAN
-    # hosts the vpn zone may reach go through the tunnel. The client keeps
-    # its own internet and DNS. For a full tunnel, change AllowedIPs to
-    # 0.0.0.0/0 in the client: the router lets VPN traffic out to the WAN.
-    _allowed="$VPN_BASE.1/32"
+    # Split tunnel: only the LAN hosts the vpn zone may reach go through the
+    # tunnel, and the client keeps its own internet. With none opened, the
+    # tunnel is only good for internet, so it carries everything (0.0.0.0/0).
+    _allowed=""
     for H in $(vpn_lan_hosts); do
         case "$H" in */*) ;; *) H="$H/32" ;; esac
-        case ", $_allowed, " in *", $H, "*) ;; *) _allowed="$_allowed, $H" ;; esac
+        case ", $_allowed, " in *", $H, "*) ;; *) _allowed="${_allowed:+$_allowed, }$H" ;; esac
     done
+    [ -n "$_allowed" ] || _allowed=0.0.0.0/0
 
     # client.sh fetches this file, then deletes it.
     _conf="/tmp/wg-$_name.conf"

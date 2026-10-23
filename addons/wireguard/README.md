@@ -64,9 +64,9 @@ Both kinds show up in LuCI and in `client list`, and both keep their private
 key on the router, so LuCI can show any client's config and QR code later.
 `add` also saves `~/wg-<name>.conf` on the PC; delete it once imported.
 
-**What a client from `client.sh` routes:** only the router's VPN address
-(`10.7.0.1`, to ping it) and the LAN hosts the `vpn` zone may reach (the
-`dest_ip` of its ACCEPT rules to `lan`, as they are on the router now). With
+**What a client from `client.sh` routes:** only the LAN hosts the `vpn` zone
+may reach (the `dest_ip` of its ACCEPT rules to `lan`, as they are on the
+router now). With none opened, everything (`0.0.0.0/0`). With
 `CLIENT_DNS` empty (the default) there is no `DNS =` line, so the client keeps
 its own DNS; set it to give clients a resolver. For a full tunnel, set
 `AllowedIPs = 0.0.0.0/0` in that client: the router lets VPN traffic out to

@@ -87,7 +87,7 @@ VPN_SUBNET="10.7.0.0/24"    # a /24 that must not overlap the LAN: router .1, cl
 CLIENT_DNS=""               # DNS for clients, e.g. "9.9.9.9, 1.1.1.1"; empty = no DNS line, they keep their own
 VPN_LAN_ACCESS=""           # LAN services VPN clients may reach, "ip:proto:port", e.g. "192.168.1.20:tcp:3389"
                             # (everything else on the LAN is blocked; give those hosts static IPs).
-                            # New clients route only these hosts through the tunnel, not all internet.
+                            # New clients route only these hosts through the tunnel; empty = all (0.0.0.0/0).
 
 # DuckDNS keeps <subdomain>.duckdns.org pointing at your home IP (empty = clients use the WAN IP)
 DUCKDNS_DOMAIN=""           # subdomain only, without .duckdns.org
