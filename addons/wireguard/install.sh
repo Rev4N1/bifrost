@@ -394,7 +394,8 @@ client_add() {
 [Interface]
 PrivateKey = $_key
 Address = $_ip/32
-
+${CLIENT_DNS:+DNS = $CLIENT_DNS
+}
 [Peer]
 PublicKey = $(server_pub)
 PresharedKey = $_psk

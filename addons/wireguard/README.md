@@ -66,8 +66,9 @@ key on the router, so LuCI can show any client's config and QR code later.
 
 **What a client from `client.sh` routes:** only the router's VPN address
 (`10.7.0.1`, to ping it) and the LAN hosts the `vpn` zone may reach (the
-`dest_ip` of its ACCEPT rules to `lan`, as they are on the router now). There
-is no `DNS =` line, so the client keeps its own DNS. For a full tunnel, set
+`dest_ip` of its ACCEPT rules to `lan`, as they are on the router now). With
+`CLIENT_DNS` empty (the default) there is no `DNS =` line, so the client keeps
+its own DNS; set it to give clients a resolver. For a full tunnel, set
 `AllowedIPs = 0.0.0.0/0` in that client: the router lets VPN traffic out to
 the internet. LuCI's *Generate configuration…* dialog has its own Allowed IPs
 field; set it the same way there.

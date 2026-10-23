@@ -20,7 +20,7 @@ set +u
 . "./$CONF"
 set -u
 : "${GW_IP:=}" "${APS:=}" "${ROOT_PASSWORD:=}" "${BOT_TOKEN:=}" "${WG_PORT:=}" \
-  "${VPN_SUBNET:=}"
+  "${VPN_SUBNET:=}" "${CLIENT_DNS:=}"
 [ "$(stat -c %a "$CONF")" = 600 ] || warn "chmod 600 $CONF (it holds every password)"
 
 # require VAR... - each must be set and not CHANGE_ME
@@ -103,6 +103,11 @@ check_wg() {
         *.0/24) is_ipv4 "${VPN_SUBNET%/*}" || die "VPN_SUBNET has no IPv4 address" ;;
         *) die "VPN_SUBNET must be a /24 starting at .0 (e.g. 10.7.0.0/24)" ;;
     esac
+    # Optional: comma-separated IPv4 resolvers, e.g. "9.9.9.9, 1.1.1.1".
+    local _dns
+    for _dns in $(printf '%s' "${CLIENT_DNS:-}" | tr ',' ' '); do
+        is_ipv4 "$_dns" || die "CLIENT_DNS entry '$_dns' is not an IPv4 address"
+    done
     # A VPN subnet that overlaps the LAN would steal LAN routes: clients
     # would reach the tunnel for addresses that are actually local. Check
     # both directions: a /24 VPN can cover a LAN that is a smaller subnet.
