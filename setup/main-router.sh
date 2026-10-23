@@ -42,7 +42,8 @@ uci set network.wan.password="$PPPOE_PASS"
 uci set network.wan.ipv6='0'
 
 uci set network.lan.proto='static'
-_OLD_LAN=$(uci -q get network.lan.ipaddr)
+_OLD_LAN=$(lan_ip)
+uci -q delete network.lan.ipaddr
 uci set network.lan.ipaddr="$GW_IP"
 uci set network.lan.netmask="$NETMASK"
 uci -q delete network.lan.ip6assign
@@ -69,12 +70,13 @@ if [ -n "$DNS_LIST" ]; then
 else
     uci -q delete dhcp.@dnsmasq[0].noresolv
 fi
-uci -q delete dhcp.lan.ra
-uci -q delete dhcp.lan.dhcpv6
-uci -q delete dhcp.lan.ndp
-uci -q delete dhcp.lan.dhcp_option
+for O in ra dhcpv6 ndp ra_slaac ra_flags dhcp_option; do uci -q delete "dhcp.lan.$O"; done
 [ -n "$DHCP_DNS_OPTION" ] && uci add_list dhcp.lan.dhcp_option="$DHCP_DNS_OPTION"
 uci commit dhcp
+# odhcpd only does DHCPv6 and router advertisements; with IPv6 off it
+# would run and serve nothing.
+/etc/init.d/odhcpd stop >/dev/null 2>&1
+/etc/init.d/odhcpd disable >/dev/null 2>&1
 if [ -n "$DNS_LIST" ]; then
     ok "upstream DNS: $DNS_LIST (only these)"
 else
@@ -123,6 +125,8 @@ if [ "${UPNP:-0}" = 1 ]; then
     if [ -x /etc/init.d/miniupnpd ]; then
         uci -q get upnpd.config >/dev/null || uci set upnpd.config=upnpd
         uci set upnpd.config.enabled='1'
+        # IPv4 only: otherwise it keeps failing to send IPv6 multicast.
+        uci set upnpd.config.ipv6_disable='1'
         uci commit upnpd
         /etc/init.d/miniupnpd enable >/dev/null 2>&1
         /etc/init.d/miniupnpd restart >/dev/null 2>&1

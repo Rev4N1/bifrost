@@ -126,6 +126,15 @@ install_usteer() {
     ok "usteer installed and enabled"
 }
 
+# lan_ip - the LAN address as a bare IP. 25.12's factory config has it as
+# a list in CIDR form (list ipaddr '192.168.1.1/24'); a configured router
+# has a plain option. Comparing the raw value with GW_IP would always see
+# a "move" on a factory router.
+lan_ip() {
+    set -- $(uci -q get network.lan.ipaddr)
+    echo "${1%%/*}"
+}
+
 # ---- bridge --------------------------------------------------------
 
 # uci section of the br-lan device, e.g. "@device[0]"

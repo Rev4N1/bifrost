@@ -38,7 +38,8 @@ uci -q delete network.wan6
 [ -n "$WAN_PORT" ] && br_add_port "$WAN_PORT"
 
 uci set network.lan.proto='static'
-_OLD_LAN=$(uci -q get network.lan.ipaddr)
+_OLD_LAN=$(lan_ip)
+uci -q delete network.lan.ipaddr
 uci set network.lan.ipaddr="$AP_IP"
 uci set network.lan.netmask="$NETMASK"
 br_no_ipv6
