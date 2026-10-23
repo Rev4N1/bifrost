@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        run: |
+          set -eu
+          bash -n deploy.sh
+          bash -n lib/pc.sh
+          bash -n addons/wireguard/client.sh
+          for f in \
+            router/common.sh router/main.sh router/ap.sh \
+            addons/wifi-watch/install.sh addons/wifi-watch/wifi-watch.sh \
+            addons/wifi-watch/wifi-watch-lib.sh addons/wifi-watch/wifi-where.sh \
+            addons/wifi-watch/wifi-watch.init addons/wireguard/install.sh; do
+            sh -n "$f"
+          done
+
+      - name: ShellCheck
+        run: |
+          shellcheck -S warning \
+            deploy.sh lib/pc.sh addons/wireguard/client.sh \
+            router/common.sh router/main.sh router/ap.sh \
+            addons/wifi-watch/install.sh addons/wifi-watch/wifi-watch.sh \
+            addons/wifi-watch/wifi-watch-lib.sh addons/wifi-watch/wifi-where.sh \
+            addons/wifi-watch/wifi-watch.init addons/wireguard/install.sh

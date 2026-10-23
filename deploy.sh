@@ -5,6 +5,8 @@
 # Settings: bifrost.conf.
 #
 #   ./deploy.sh              main router, every AP, then the addons in use
+#   ./deploy.sh check        validate the config and reach the routers
+#   ./deploy.sh backup       save a sysupgrade backup of every router
 #   ./deploy.sh ap <name>    one AP; a factory-fresh one is moved to its
 #                            final address and rebooted (run bare next)
 #
@@ -12,17 +14,16 @@
 # and maintains it after upgrades. Every device is safe to
 # re-run, and reboots only when something changed.
 #
-# The only argument is an AP name, for the case the network
-# cannot reveal: a factory-reset AP sits at 192.168.1.1, the
-# same address as the main router, so it must be plugged into
-# your PC alone and named.
+# The AP form exists for the case the network cannot reveal: a
+# factory-reset AP sits at 192.168.1.1, the same address as the
+# main router, so it must be plugged into your PC alone and named.
 # ========================================================
 set -euo pipefail
 cd "$(dirname "$0")"
 
 # The PC side of a deploy. Routers have their own tools; this is what
 # deploy.sh itself needs to reach them.
-for _c in ssh scp mktemp timeout stat sed; do
+for _c in ssh scp mktemp timeout stat sed tr cp chmod mkdir date uname; do
     command -v "$_c" >/dev/null 2>&1 \
         || { printf 'deploy.sh: install %s on this PC\n' "$_c" >&2; exit 1; }
 done
@@ -38,7 +39,7 @@ SHARED_VARS="SSID WPA_PSK COUNTRY MOBILITY_DOMAIN BW24 BW5 TXPOWER_24 GW_IP NETM
              ROOT_PASSWORD ZONENAME TIMEZONE NTP_SERVER"
 AP_VARS="$SHARED_VARS APS"
 MAIN_VARS="$SHARED_VARS WAN_DEVICE PPPOE_USER PPPOE_PASS MAIN_HOSTNAME MAIN_CH24 MAIN_CH5
-           DNS_LIST DHCP_DNS_OPTION UPNP"
+           DNS_LIST UPNP"
 WATCH_VARS="BOT_TOKEN CHAT_ID PEOPLE PEOPLE_MAC AP_IPS POLL_INTERVAL MISSES_TO_LEAVE
             CONFIRM_ROUNDS CONFIRM_GAP ARPING_TRIES INITIAL_SETTLE AP_FAIL_GRACE"
 WG_VARS="WG_PORT VPN_SUBNET CLIENT_DNS VPN_LAN_ACCESS DUCKDNS_DOMAIN DUCKDNS_TOKEN"
@@ -49,17 +50,23 @@ deploy.sh - the one command you run on the PC
 
   ./deploy.sh              configure or maintain everything: main router,
                            every AP, then the addons in use
+  ./deploy.sh check        validate bifrost.conf and reach every router;
+                           changes nothing
+  ./deploy.sh backup       save a sysupgrade backup of every router to
+                           ~/bifrost-backups/<timestamp>/
   ./deploy.sh ap <name>    one AP; a factory-fresh one at 192.168.1.1 is
                            moved to its final address and rebooted
 
 Every device is safe to re-run, and reboots only when something changed.
 Settings: bifrost.conf.
 EOF
-    exit 1
+    exit "${1:-1}"
 }
 case "${1:-}" in
     "")  ;;
     ap)  [ "$#" -eq 2 ] || usage ;;
+    check | backup) [ "$#" -eq 1 ] || usage ;;
+    -h | --help) usage 0 ;;
     *)   usage ;;
 esac
 
@@ -171,7 +178,10 @@ require_net() {
     [ "${#WPA_PSK}" -ge 8 ] && [ "${#WPA_PSK}" -le 63 ] || die "WPA_PSK must be 8-63 characters"
     case "${BW24:-}" in 20 | 40) ;; *) die "BW24 must be 20 or 40" ;; esac
     case "${BW5:-}" in 20 | 40 | 80 | 160) ;; *) die "BW5 must be 20, 40, 80 or 160" ;; esac
-    [ -z "${TXPOWER_24:-}" ] || is_uint "$TXPOWER_24" || die "TXPOWER_24 must be a number or empty"
+    if [ -n "${TXPOWER_24:-}" ]; then
+        is_uint "$TXPOWER_24" && [ "$TXPOWER_24" -ge 1 ] && [ "$TXPOWER_24" -le 30 ] \
+            || die "TXPOWER_24 must be 1-30 dBm, or empty for the regulatory maximum"
+    fi
     case "${UPNP:-0}" in 0 | 1) ;; *) die "UPNP must be 0 or 1" ;; esac
     local _d _e _n _ip _ach24 _ach5 _names=" " _ips=" " _mask _hostbits _host
     _mask=$(ip_to_int "$NETMASK")
@@ -211,12 +221,17 @@ require_net() {
     done
 }
 
-cmd_main() {
-    require_net; require WAN_DEVICE PPPOE_USER PPPOE_PASS MAIN_CH24 MAIN_CH5
+require_main() {
+    require_net
+    require WAN_DEVICE PPPOE_USER PPPOE_PASS MAIN_CH24 MAIN_CH5
     is_uint "$MAIN_CH24" && [ "$MAIN_CH24" -ge 1 ] && [ "$MAIN_CH24" -le 14 ] \
         || die "MAIN_CH24 must be 1-14"
     is_uint "$MAIN_CH5" && [ "$MAIN_CH5" -ge 32 ] && [ "$MAIN_CH5" -le 177 ] \
         || die "MAIN_CH5 must be 32-177"
+}
+
+cmd_main() {
+    require_main
     local h
     if port_open "$GW_IP"; then
         h=$(hostname_at "$GW_IP")
@@ -230,8 +245,8 @@ cmd_main() {
         [ "$h" = "$MAIN_HOSTNAME" ] || [ "$h" = OpenWrt ] \
             || warn "$GW_IP answered as '$h', not $MAIN_HOSTNAME - continuing"
         say "main router $GW_IP"
-        run_step "$GW_IP" "$(stage setup network.conf "$MAIN_VARS")" \
-            "sh @DIR@/main-router.sh" "$GW_IP"
+        run_step "$GW_IP" "$(stage router network.conf "$MAIN_VARS")" \
+            "sh @DIR@/main.sh" "$GW_IP"
         return 0
     fi
     # A factory-reset main router still sits at 192.168.1.1. Don't reuse a
@@ -246,8 +261,8 @@ cmd_main() {
         if [ "$h" = OpenWrt ] || [ "$h" = "$MAIN_HOSTNAME" ]; then
             say "main router at $FACTORY_IP"
             warn "it moves to $GW_IP and reboots; this PC must be able to reach that subnet, then run ./deploy.sh again"
-            run_step "$FACTORY_IP" "$(stage setup network.conf "$MAIN_VARS")" \
-                "sh @DIR@/main-router.sh" "$GW_IP"
+            run_step "$FACTORY_IP" "$(stage router network.conf "$MAIN_VARS")" \
+                "sh @DIR@/main.sh" "$GW_IP"
             SSH_OPTS=("${saved_opts[@]}")
             return 0
         fi
@@ -275,8 +290,8 @@ cmd_ap() {
         [ "$h" = "$name" ] || [ "$h" = OpenWrt ] \
             || warn "$ip answered as '$h', not $name - continuing"
         say "AP $name ($ip)"
-        run_step "$ip" "$(stage setup network.conf "$AP_VARS")" \
-            "sh @DIR@/dumb-ap.sh $name" "$ip"
+        run_step "$ip" "$(stage router network.conf "$AP_VARS")" \
+            "sh @DIR@/ap.sh $name" "$ip"
         return 0
     fi
 
@@ -300,8 +315,8 @@ cmd_ap() {
         echo "    Only your PC should be plugged into it. It moves to $ip,"
         echo "    reboots, and stops there; plug it into the main LAN and"
         echo "    run ./deploy.sh again to install packages and Wi-Fi."
-        run_step "$FACTORY_IP" "$(stage setup network.conf "$AP_VARS")" \
-            "sh @DIR@/dumb-ap.sh $name" "$ip"
+        run_step "$FACTORY_IP" "$(stage router network.conf "$AP_VARS")" \
+            "sh @DIR@/ap.sh $name" "$ip"
         SSH_OPTS=("${saved_opts[@]}")
         [ "$ip" = "$FACTORY_IP" ] \
             || warn "AP $name is at $ip now - plug it into the main LAN, then run ./deploy.sh"
@@ -342,6 +357,74 @@ cmd_wireguard() {
         || die "wireguard failed on $GW_IP"
 }
 
+# Read-only preflight: validate every setting and prove each router answers.
+# This is what to run before a deploy if something feels wrong, and after a
+# flash to see which addresses came back.
+cmd_check() {
+    require_main
+    [ -z "$BOT_TOKEN" ] || check_watch
+    [ -z "$WG_PORT" ] || check_wg
+    local rc=0 ip h expected _e _aip
+    say "checking $GW_IP and the APs in bifrost.conf"
+    for ip in "$GW_IP" $AP_IPS; do
+        expected=$MAIN_HOSTNAME
+        for _e in $APS; do
+            _aip=${_e#*,}
+            _aip=${_aip%%,*}
+            [ "$_aip" = "$ip" ] && expected=${_e%%,*}
+        done
+        if ! port_open "$ip"; then
+            warn "$ip: no SSH (expected $expected)"
+            rc=1
+            continue
+        fi
+        h=$(hostname_at "$ip") || h=""
+        if [ -z "$h" ]; then
+            warn "$ip: SSH opened but did not answer (wrong password?)"
+            rc=1
+        elif [ "$h" = "$expected" ] || [ "$h" = OpenWrt ]; then
+            printf '  [ ok ] %-15s %s\n' "$ip" "$h"
+        else
+            warn "$ip: answered as '$h', expected $expected"
+            rc=1
+        fi
+    done
+    [ "$rc" -eq 0 ] && say "all routers answered" || warn "some routers did not answer"
+    return "$rc"
+}
+
+# sysupgrade -b on each router, copied to the PC. The same archive the
+# router's own backup uses, so it can be restored with sysupgrade -r.
+cmd_backup() {
+    require_net
+    local stamp dir ip name rc=0
+    stamp=$(date +%Y-%m-%d-%H%M%S)
+    dir="${BIFROST_BACKUP_DIR:-${HOME:-$PWD}/bifrost-backups}/$stamp"
+    mkdir -p "$dir" || die "cannot create $dir"
+    say "backups -> $dir"
+    for ip in "$GW_IP" $AP_IPS; do
+        if ! port_open "$ip"; then
+            warn "$ip unreachable - skipped"
+            rc=1
+            continue
+        fi
+        name=$(hostname_at "$ip") || name=""
+        [ -n "$name" ] || name=$ip
+        printf '  %s (%s)\n' "$name" "$ip"
+        pw "$ip" ssh "${SSH_OPTS[@]}" "root@$ip" \
+            'sysupgrade -b /tmp/bifrost-backup.tar.gz >/dev/null' \
+            || { warn "  backup failed on $ip"; rc=1; continue; }
+        pw "$ip" scp -O -q "${SSH_OPTS[@]}" \
+            "root@$ip:/tmp/bifrost-backup.tar.gz" "$dir/$name-$ip.tar.gz" \
+            || { warn "  copy failed from $ip"; rc=1; continue; }
+        pw "$ip" ssh "${SSH_OPTS[@]}" "root@$ip" \
+            'rm -f /tmp/bifrost-backup.tar.gz' >/dev/null 2>&1 || true
+        printf '    saved %s\n' "$dir/$name-$ip.tar.gz"
+    done
+    [ "$rc" -eq 0 ] && say "backup complete" || warn "backup incomplete"
+    return "$rc"
+}
+
 # No arguments: configure or maintain the whole network. An AP that is
 # not reachable (and is not a factory device) is skipped with a warning.
 # The addons need the whole network, so if any AP is missing they wait for
@@ -374,6 +457,8 @@ cmd_all() {
 }
 
 case "${1:-}" in
-    "")  cmd_all ;;
-    ap)  shift; cmd_ap "$@" ;;
+    "")     cmd_all ;;
+    ap)     shift; cmd_ap "$@" ;;
+    check)  cmd_check ;;
+    backup) cmd_backup ;;
 esac

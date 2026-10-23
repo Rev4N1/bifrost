@@ -1,4 +1,5 @@
 #!/bin/sh /etc/rc.common
+# shellcheck disable=SC2034  # START/USE_PROCD are read by rc.common
 # procd service wrapper for wifi-watch.sh
 # Installed as /etc/init.d/wifi-watch on the main router
 

@@ -1,11 +1,12 @@
 #!/bin/ash
+# shellcheck shell=dash
 # ========================================================
 # Main router setup for OpenWrt 25.12: PPPoE gateway, DHCP,
 # DNS, Wi-Fi. Every value comes from bifrost.conf (as
 # network.conf, written by deploy.sh).
 #
 #   ./deploy.sh               (from the PC; or, on the router:)
-#   sh /tmp/bifrost-setup/main-router.sh
+#   sh /tmp/bifrost-router/main.sh
 #
 # Safe to re-run after every flash. Reboots at the end only if
 # something actually changed. If GW_IP differs from the router's
@@ -70,8 +71,12 @@ if [ -n "$DNS_LIST" ]; then
 else
     uci -q delete dhcp.@dnsmasq[0].noresolv
 fi
+# DHCP clients always get the router as their resolver, so DNS_LIST is
+# enforced instead of being bypassed by an alternate server.
 for O in ra dhcpv6 ndp ra_slaac ra_flags dhcp_option; do uci -q delete "dhcp.lan.$O"; done
-[ -n "$DHCP_DNS_OPTION" ] && uci add_list dhcp.lan.dhcp_option="$DHCP_DNS_OPTION"
+for S in $(uci show dhcp | sed -n 's/^dhcp\.\([^.]*\)=odhcpd$/\1/p'); do
+    uci -q delete "dhcp.$S"
+done
 uci commit dhcp
 # odhcpd only does DHCPv6 and router advertisements; with IPv6 off it
 # would run and serve nothing.
@@ -82,7 +87,7 @@ if [ -n "$DNS_LIST" ]; then
 else
     ok "upstream DNS: the WAN DNS"
 fi
-ok "clients get ${DHCP_DNS_OPTION:-the router}"
+ok "clients get the router as DNS"
 
 # ---- NAT offload: established flows bypass the CPU ----------------
 # In hardware where the SoC supports it; fw4 falls back to software.

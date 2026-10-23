@@ -1,11 +1,12 @@
 #!/bin/ash
+# shellcheck shell=dash
 # ========================================================
 # Dumb AP setup for OpenWrt 25.12: bridge only, no DHCP,
 # DNS or firewall. Its IP and channels come from the APS
 # list in bifrost.conf (as network.conf, written by deploy.sh).
 #
 #   ./deploy.sh ap <hostname>  (from the PC; or, on the AP:)
-#   sh /tmp/bifrost-setup/dumb-ap.sh <hostname>
+#   sh /tmp/bifrost-router/ap.sh <hostname>
 #
 # A factory-fresh AP is still at 192.168.1.1. The first run moves
 # it to its final IP and reboots; the next run at that address
@@ -65,6 +66,10 @@ for S in firewall dnsmasq odhcpd; do
     /etc/init.d/$S disable >/dev/null 2>&1
 done
 : > /etc/config/dhcp
+# The firewall config still names the wan/wan6 interfaces deleted above.
+# The service is disabled on a dumb AP, so empty it rather than leave
+# references that would break if it were ever started.
+: > /etc/config/firewall
 # Belt and braces: netifd writes this file from the interface's DNS.
 # dnsmasq is disabled, so nothing recreates /tmp/resolv.conf at boot and
 # the next run could not resolve the package repo. /tmp is RAM, so point

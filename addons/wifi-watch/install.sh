@@ -5,7 +5,7 @@
 # Runs ON the main router; from the PC:  ./deploy.sh
 #
 # This is an ADDON. It never touches wireless, network, dhcp
-# or firewall config - the setup/ scripts own those. The only
+# or firewall config - the router/ scripts own those. The only
 # change it makes to the dumb APs is appending one public key
 # to /etc/dropbear/authorized_keys, so they can be asked
 # which stations are associated.
@@ -43,6 +43,7 @@ else
     WIFI_WATCH_CONF="$SRC_DIR/wifi-watch.conf"
 fi
 [ -r "$LIB" ] || { echo "cannot read $LIB"; exit 1; }
+# shellcheck disable=SC1090  # loaded from the staged directory or /usr/lib
 . "$LIB"
 ww_load_conf 2>/dev/null || [ "$1" = "--uninstall" ] || {
     echo "cannot read $WIFI_WATCH_CONF - run this through ./deploy.sh"
@@ -69,6 +70,12 @@ check_host() {
         fail "this does not look like OpenWrt"
         return
     fi
+    . /etc/openwrt_release
+    case "${DISTRIB_RELEASE:-}" in
+        25.*) ;;
+        *) fail "this addon targets OpenWrt 25.12 (apk); found ${DISTRIB_RELEASE:-unknown}"; return ;;
+    esac
+    command -v apk >/dev/null 2>&1 || { fail "apk not found - not an apk-based 25.12 image"; return; }
     ok "$(uname -n) - $(sed -n "s/^DISTRIB_DESCRIPTION='\(.*\)'/\1/p" /etc/openwrt_release)"
 
     # A dumb AP has an empty /etc/config/dhcp. Check the config rather than

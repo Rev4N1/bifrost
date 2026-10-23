@@ -3,8 +3,8 @@
 A WireGuard VPN server on the main router: VPN clients reach the services in
 `VPN_LAN_ACCESS`, and nothing else on the LAN. New clients are split-tunnel:
 only those hosts go through the VPN, and each client keeps its own internet
-and DNS. Everything shows
-up in LuCI, where you can change it whenever you like.
+and DNS (with no services listed, a client sends everything through the
+VPN). Everything shows up in LuCI, where you can change it whenever you like.
 
 **`bifrost.conf` seeds it, LuCI owns it.** The first deploy creates each piece
 below from part 6 of `bifrost.conf`. From then on, a piece that exists is never

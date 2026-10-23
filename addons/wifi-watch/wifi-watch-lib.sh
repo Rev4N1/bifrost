@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2034,SC1090
 # ========================================================
 # wifi-watch-lib.sh - shared code for wifi-watch.sh,
 # wifi-where.sh and install.sh. Installed to
@@ -106,10 +107,13 @@ ww_ap_run() {
 # ---- queries -------------------------------------------------------
 
 # Every associated station MAC, then a sentinel proving the command
-# actually ran. Without the sentinel an SSH failure and an AP with no
-# clients are indistinguishable - and that difference is the whole
-# point of wifi-watch's degraded-mode logic.
-ASSOC_CMD='for o in $(ubus list 2>/dev/null | grep "^hostapd\."); do ubus call "$o" get_clients 2>/dev/null; done; for i in $(iw dev 2>/dev/null | sed -n "s/^[[:space:]]*Interface //p"); do iw dev "$i" station dump 2>/dev/null; done; echo __WIFIWATCH_OK__'
+# actually ran. hostapd's get_clients is authoritative and drops a station
+# when it leaves. `iw station dump` can keep an inactive entry for minutes,
+# so it is only the fallback for images with no hostapd on ubus. Without
+# the sentinel an SSH failure and an AP with no clients are
+# indistinguishable - and that difference is the whole point of
+# wifi-watch's degraded-mode logic.
+ASSOC_CMD='o=$(ubus list 2>/dev/null | grep "^hostapd\."); if [ -n "$o" ]; then for x in $o; do ubus call "$x" get_clients 2>/dev/null; done; else for i in $(iw dev 2>/dev/null | sed -n "s/^[[:space:]]*Interface //p"); do iw dev "$i" station dump 2>/dev/null; done; fi; echo __WIFIWATCH_OK__'
 
 # Per station: "<mac> <iface> <channel> <signal>", for wifi-where.sh.
 WHERE_CMD='for i in $(iw dev 2>/dev/null | sed -n "s/^[[:space:]]*Interface //p"); do

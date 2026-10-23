@@ -35,6 +35,7 @@ hdr()  { printf '\n== %s\n' "$*"; }
 die()  { printf '  [FAIL] %s\n' "$*"; exit 1; }
 
 [ -r "$CONF" ] || die "cannot read $CONF - run this through ./deploy.sh"
+# shellcheck disable=SC1090  # staged config written by deploy.sh
 . "$CONF"
 if [ "$1" != "--uninstall" ] && grep -qE "=[\"']CHANGE_ME[\"']" "$CONF"; then
     die "$CONF still has CHANGE_ME placeholders"
@@ -124,6 +125,12 @@ endpoint_host() {
 check_host() {
     hdr "Host"
     [ -f /etc/openwrt_release ] || die "this does not look like OpenWrt"
+    . /etc/openwrt_release
+    case "${DISTRIB_RELEASE:-}" in
+        25.*) ;;
+        *) die "this addon targets OpenWrt 25.12 (apk); found ${DISTRIB_RELEASE:-unknown}" ;;
+    esac
+    command -v apk >/dev/null 2>&1 || die "apk not found - not an apk-based 25.12 image"
     # A dumb AP has an empty /etc/config/dhcp. Checking the config, not a
     # lease file, keeps a fresh main router with no clients from failing.
     uci -q get dhcp.@dnsmasq[0] >/dev/null \
@@ -305,7 +312,10 @@ check() {
         *)                                    ok "WAN address $_wan is public" ;;
     esac
     if [ -n "$DUCKDNS_DOMAIN" ] && [ -n "$_wan" ]; then
-        _dns=$(nslookup "$DUCKDNS_DOMAIN.duckdns.org" 9.9.9.9 2>/dev/null | awk '/^Address/ && !/#/ {print $NF}' | tail -n1)
+        # The router's own resolver (which already follows DNS_LIST), not a
+        # hard-coded public resolver. Only IPv4 answers matter here.
+        _dns=$(nslookup "$DUCKDNS_DOMAIN.duckdns.org" 2>/dev/null \
+            | sed -n 's/^Address: \([0-9][0-9.]*\)$/\1/p' | tail -n1)
         [ "$_dns" = "$_wan" ] && ok "$DUCKDNS_DOMAIN.duckdns.org -> $_wan" \
             || warn "$DUCKDNS_DOMAIN.duckdns.org -> ${_dns:-nothing}, WAN is $_wan (it updates within minutes)"
     fi

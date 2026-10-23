@@ -1,13 +1,14 @@
 #!/bin/ash
+# shellcheck shell=dash
 # ========================================================
-# Shared provisioning steps, sourced by main-router.sh
-# and dumb-ap.sh. Every step is safe to re-run: it
-# sets values rather than appending them, so running a
-# setup script on an already-provisioned router (e.g. after
-# every firmware flash) converges to the same config.
+# Shared provisioning steps, sourced by main.sh and ap.sh.
+# Every step is safe to re-run: it sets values rather than
+# appending them, so running a setup script on an
+# already-provisioned router (e.g. after every firmware
+# flash) converges to the same config.
 # ========================================================
 
-SETUP_DIR=$(cd "$(dirname "$0")" && pwd)
+ROUTER_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # A dumb AP changes its own IP mid-run, which kills the SSH
 # session we were started from. Don't let that kill us too:
@@ -19,7 +20,7 @@ trap '' HUP PIPE
 exec </dev/null
 # This folder holds network.conf, with ROOT_PASSWORD and the
 # PPPoE login: delete the copy in /tmp once the run is over.
-case "$SETUP_DIR" in /tmp/*) trap 'rm -rf "$SETUP_DIR"' EXIT ;; esac
+case "$ROUTER_DIR" in /tmp/*) trap 'rm -rf "$ROUTER_DIR"' EXIT ;; esac
 
 say()  { printf '%s\n' "$*"; }
 ok()   { printf '  [ ok ] %s\n' "$*"; }
@@ -28,11 +29,19 @@ hdr()  { printf '\n== %s\n' "$*"; }
 die()  { printf '  [FAIL] %s\n' "$*"; exit 1; }
 
 # network.conf is written by deploy.sh from bifrost.conf on the PC.
-[ -f "$SETUP_DIR/network.conf" ] || die "network.conf not found next to $0 - run this through ./deploy.sh"
-. "$SETUP_DIR/network.conf"
-grep -qE "=[\"']CHANGE_ME[\"']" "$SETUP_DIR/network.conf" && die "network.conf still has CHANGE_ME values (fix bifrost.conf)"
+[ -f "$ROUTER_DIR/network.conf" ] || die "network.conf not found next to $0 - run this through ./deploy.sh"
+. "$ROUTER_DIR/network.conf"
+grep -qE "=[\"']CHANGE_ME[\"']" "$ROUTER_DIR/network.conf" && die "network.conf still has CHANGE_ME values (fix bifrost.conf)"
 
 [ -f /etc/openwrt_release ] || die "this does not look like OpenWrt"
+. /etc/openwrt_release
+# 25.12 is the first apk-based release. Older opkg images would fail later
+# with confusing "apk: not found" errors; stop before changing anything.
+case "${DISTRIB_RELEASE:-}" in
+    25.*) ;;
+    *) die "this repo targets OpenWrt 25.12 (apk); this is ${DISTRIB_RELEASE:-unknown}. Flash 25.12 first." ;;
+esac
+command -v apk >/dev/null 2>&1 || die "apk not found - this is not an apk-based OpenWrt 25.12 image"
 
 # What uci looked like before this run. finish() reboots only when it
 # differs, so re-running a setup script does not drop Wi-Fi for nothing.
@@ -56,9 +65,13 @@ setup_system() {
         uci set system.ntp.enable_server='0'
     fi
     uci commit system
-    ( echo "$ROOT_PASSWORD"; sleep 1; echo "$ROOT_PASSWORD" ) | passwd root >/dev/null 2>&1 \
-        && ok "hostname $1, root password set" \
-        || warn "could not set root password"
+    # Everything after this logs in with ROOT_PASSWORD, so a failure here
+    # must stop the run, not leave a router that reboots and locks us out.
+    if printf '%s\n%s\n' "$ROOT_PASSWORD" "$ROOT_PASSWORD" | passwd root >/dev/null 2>&1; then
+        ok "hostname $1, root password set"
+    else
+        die "could not set the root password (ROOT_PASSWORD)"
+    fi
 }
 
 # ---- connectivity --------------------------------------------------
@@ -107,23 +120,30 @@ sync_time() {
 # hop itself fast.
 install_usteer() {
     hdr "usteer"
-    if apk list --installed 2>/dev/null | grep -q '^usteer-[0-9]'; then
-        # Installed by an earlier run, but that run may have stopped before
-        # enabling it, or a reboot may have left it off. Converge.
-        /etc/init.d/usteer enable >/dev/null 2>&1
-        /etc/init.d/usteer running >/dev/null 2>&1 \
-            || /etc/init.d/usteer start >/dev/null 2>&1
-        ok "usteer already installed"
-        return
+    if ! apk list --installed 2>/dev/null | grep -q '^usteer-[0-9]'; then
+        # A fresh router has no package index yet.
+        apk update >/dev/null 2>&1
+        apk add usteer >/dev/null 2>&1 || { warn "usteer install failed"; return; }
     fi
-    # A fresh router has no package index yet.
-    apk update >/dev/null 2>&1
-    apk add usteer >/dev/null 2>&1 || { warn "usteer install failed"; return; }
+
+    # Explicit, not the package default: every node must exchange state on
+    # the LAN, over IPv4. debug_level 1 keeps syslog useful without the
+    # verbose per-client chatter.
+    _sec='@usteer[0]'
+    if ! uci -q get "usteer.$_sec" >/dev/null; then
+        uci set usteer.usteer=usteer
+        _sec=usteer
+    fi
+    uci set "usteer.$_sec.network=lan"
+    uci set "usteer.$_sec.local_mode=0"
+    uci set "usteer.$_sec.ipv6=0"
+    uci set "usteer.$_sec.syslog=1"
+    uci set "usteer.$_sec.debug_level=1"
+    uci commit usteer
+
     /etc/init.d/usteer enable >/dev/null 2>&1
-    # Start it now: nothing else in this run will (the config may be
-    # unchanged, in which case finish() does not reboot).
     /etc/init.d/usteer restart >/dev/null 2>&1 || true
-    ok "usteer installed and enabled"
+    ok "usteer enabled on the LAN"
 }
 
 # lan_ip - the LAN address as a bare IP. 25.12's factory config has it as
@@ -131,6 +151,7 @@ install_usteer() {
 # has a plain option. Comparing the raw value with GW_IP would always see
 # a "move" on a factory router.
 lan_ip() {
+    # shellcheck disable=SC2046  # deliberate: a factory list has one CIDR value
     set -- $(uci -q get network.lan.ipaddr)
     echo "${1%%/*}"
 }
@@ -171,18 +192,34 @@ setup_packet_steering() {
 
 # ---- wireless ------------------------------------------------------
 
+# Remove every wifi-iface on one radio. The repo owns wireless: this is
+# how a factory image, an old guest SSID, or a stale interface from an
+# earlier model disappears instead of running alongside the new one.
+clear_radio_ifaces() {
+    for _s in $(uci show wireless | sed -n 's/^wireless\.\([^.]*\)=wifi-iface$/\1/p'); do
+        [ "$(uci -q get "wireless.$_s.device")" = "$1" ] \
+            && uci -q delete "wireless.$_s"
+    done
+}
+
 # setup_wireless <hostname> <ch24> <bw24> <ch5> <bw5>
 # Radios are matched by band, not by name, so radio0/radio1 ordering
 # differences between models don't matter.
 setup_wireless() {
     hdr "Wireless"
     _host="$1"
-    for R in radio0 radio1 radio2; do
-        uci -q get "wireless.$R" >/dev/null || continue
+    for R in $(uci show wireless | sed -n 's/^wireless\.\(radio[0-9][0-9]*\)=.*/\1/p'); do
         case "$(uci -q get "wireless.$R.band")" in
             2g) _ch="$2"; _bw="$3"; _sfx=24; _txp="$TXPOWER_24" ;;
             5g) _ch="$4"; _bw="$5"; _sfx=5;  _txp="" ;;
-            *)  warn "$R: not 2.4 or 5 GHz, left untouched"; continue ;;
+            *)
+                # A 6 GHz or unknown radio must not keep an old SSID or
+                # default network. This setup is 2.4/5 GHz only.
+                uci set "wireless.$R.disabled=1"
+                clear_radio_ifaces "$R"
+                warn "$R: band '$(uci -q get "wireless.$R.band")' not supported - disabled"
+                continue
+                ;;
         esac
 
         uci set "wireless.$R.disabled=0"
@@ -195,8 +232,8 @@ setup_wireless() {
             uci -q delete "wireless.$R.txpower"     # regulatory max
         fi
 
+        clear_radio_ifaces "$R"
         _if="default_$R"
-        uci -q delete "wireless.$_if"
         uci set "wireless.$_if=wifi-iface"
         uci set "wireless.$_if.device=$R"
         uci set "wireless.$_if.mode=ap"
@@ -222,6 +259,15 @@ setup_wireless() {
         # 802.11w protected management frames, optional so older
         # clients without PMF still join. Stops spoofed deauths.
         uci set "wireless.$_if.ieee80211w=1"
+
+        # Fewer forced key rotations: sleepy phones and IoT devices deal
+        # badly with the 10-minute default. One hour still rotates keys.
+        uci set "wireless.$_if.wpa_group_rekey=3600"
+
+        # Don't kick a client just because its ACKs are weak; usteer and
+        # 802.11k/v are the steering path, and a weak client that is still
+        # usable should not be disconnected.
+        uci set "wireless.$_if.disassoc_low_ack=0"
 
         ok "$R ($_sfx GHz): ch $_ch, HE$_bw, txpower ${_txp:-max}"
     done

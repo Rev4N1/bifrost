@@ -1,4 +1,16 @@
 # Every setting and secret; bifrost.conf.example is the committed template
 bifrost.conf
+
+# Generated per-device configs (secrets); deploy.sh writes these in a temp
+# directory, but never commit one left behind by hand.
+/router/network.conf
+/addons/wifi-watch/wifi-watch.conf
+/addons/wireguard/wireguard.conf
+
+# Local backups and scratch files
+/bifrost-backups/
+*.bak
+*.tmp
 # Command output saved while testing - never commit it
 *.txt
+.DS_Store

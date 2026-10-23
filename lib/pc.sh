@@ -12,6 +12,13 @@ say()  { printf '\n>>> %s\n' "$*"; }
 warn() { printf '%s: %s\n' "${0##*/}" "$*" >&2; }
 die()  { printf '%s: %s\n' "${0##*/}" "$*" >&2; exit 1; }
 
+# The PC-side tools this file itself uses. deploy.sh checks a few more that
+# only it needs (timeout, stat, mkdir, date).
+for _c in ssh scp mktemp sed tr cp chmod; do
+    command -v "$_c" >/dev/null 2>&1 || die "install $_c on this PC"
+done
+unset _c
+
 # ---- config ---------------------------------------------------------
 
 [ -f "$CONF" ] || die "$CONF is missing: cp -n $CONF.example $CONF, then fill it in"
@@ -59,7 +66,11 @@ is_hostname() {
     case "$1" in '' | -* | *- | *[!a-z0-9-]*) return 1 ;; esac
 }
 
-is_uint() { case "$1" in '' | *[!0-9]*) return 1 ;; esac; }
+is_uint() {
+    case "$1" in '' | *[!0-9]*) return 1 ;; esac
+    # 0 is fine; 00 is not: arithmetic would read it as octal.
+    [ "$1" = 0 ] || [ "${1#0}" = "$1" ]
+}
 
 # A LAN mask must be contiguous: 255.255.255.0 is valid, 255.0.255.0 is
 # not. /31 and /32 are point-to-point masks, not LAN masks.
@@ -180,10 +191,11 @@ if [ "$(uname -s)" = Linux ]; then
     mkdir -p ~/.ssh && chmod 700 ~/.ssh
     SSH_OPTS=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/cm-%r@%h:%p" -o ControlPersist=60 "${SSH_OPTS[@]}")
 fi
-read -r _maj _min <<< "$(ssh -V 2>&1 | sed -n 's/^OpenSSH_\([0-9]*\)\.\([0-9]*\).*/\1 \2/p')"
+_ver=$(ssh -V 2>&1)
+read -r _maj _min <<< "$(printf '%s\n' "$_ver" | sed -n 's/.*OpenSSH[^0-9]*\([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2/p')"
 [ "${_maj:-0}" -gt 8 ] || { [ "${_maj:-0}" -eq 8 ] && [ "${_min:-0}" -ge 4 ]; } \
-    || die "needs OpenSSH 8.4 or newer (ssh -V says: $(ssh -V 2>&1))"
-unset _maj _min
+    || die "needs OpenSSH 8.4 or newer (ssh -V says: $_ver)"
+unset _ver _maj _min
 ASKPASS="$STAGE/askpass"
 printf '#!/bin/sh\nprintf "%%s\\n" "$BIFROST_PW"\n' > "$ASKPASS"
 chmod 700 "$ASKPASS"

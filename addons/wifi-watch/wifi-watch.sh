@@ -78,10 +78,21 @@ notify() {
 
 flush_outbox() {
     [ -s "$OUTBOX" ] || return 0
+    # Read the old queue and build the new one separately: writing the file
+    # while reading it (sed -i) is fragile, and a failed send must keep that
+    # message and everything after it, in order.
+    _tmp="$OUTBOX.tmp"
+    : > "$_tmp"
+    _failed=0
     while IFS= read -r _msg; do
-        send_telegram "$_msg" || return 1
-        sed -i '1d' "$OUTBOX"
+        if [ "$_failed" -eq 0 ] && send_telegram "$_msg"; then
+            continue
+        fi
+        _failed=1
+        printf '%s\n' "$_msg" >> "$_tmp"
     done < "$OUTBOX"
+    mv "$_tmp" "$OUTBOX"
+    [ "$_failed" -eq 0 ]
 }
 
 # ---- capability detection ------------------------------------------
@@ -110,12 +121,15 @@ fi
 # ---- signal 1: association -----------------------------------------
 
 local_assoc() {
-    for O in $(ubus list 2>/dev/null | grep '^hostapd\.'); do
-        ubus call "$O" get_clients 2>/dev/null
-    done
-    for I in $(iw dev 2>/dev/null | sed -n 's/^[[:space:]]*Interface //p'); do
-        iw dev "$I" station dump 2>/dev/null
-    done
+    _objs=$(ubus list 2>/dev/null | grep '^hostapd\.')
+    if [ -n "$_objs" ]; then
+        for O in $_objs; do ubus call "$O" get_clients 2>/dev/null; done
+    else
+        # Fallback only: iw keeps an inactive station entry after it left.
+        for I in $(iw dev 2>/dev/null | sed -n 's/^[[:space:]]*Interface //p'); do
+            iw dev "$I" station dump 2>/dev/null
+        done
+    fi
 }
 
 # remote_assoc <host> -> prints MACs, exit 0 only if the AP really answered
@@ -237,6 +251,7 @@ person_present() {
 # Before announcing a departure, re-query the APs and re-probe a few more
 # times spaced out in time. A roam is seconds wide; this makes it
 # essentially impossible for one to be mistaken for a departure.
+# Returns 0 = absent, 1 = present again, 2 = an AP went unreachable.
 confirm_absent() {
     _person="$1"
     _round=0
@@ -244,7 +259,7 @@ confirm_absent() {
         sleep "$CONFIRM_GAP"
         collect_assoc
         person_present "$_person" 5 && return 1
-        [ "$APS_DEGRADED" -eq 1 ] && return 1
+        [ "$APS_DEGRADED" -eq 1 ] && return 2
         _round=$((_round + 1))
     done
     return 0
@@ -359,8 +374,14 @@ while true; do
                 [ "$SEEDING" -eq 0 ] && notify "$PERSON left home 🚪"
                 echo "away 0" > "$STATE_FILE"
             else
-                log "RECOVERED: $PERSON answered during confirmation"
-                echo "home 0" > "$STATE_FILE"
+                _rc=$?
+                if [ "$_rc" -eq 2 ]; then
+                    log "HOLD: $PERSON at threshold but an AP became unreachable during confirmation"
+                    echo "home $MISS_COUNT" > "$STATE_FILE"
+                else
+                    log "RECOVERED: $PERSON answered during confirmation"
+                    echo "home 0" > "$STATE_FILE"
+                fi
             fi
         fi
     done < "$PERSONS"
