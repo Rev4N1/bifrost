@@ -45,6 +45,29 @@ fi
 VPN_BASE=${VPN_SUBNET%.*}          # 10.7.0.0/24 -> 10.7.0
 VPN_PREFIX=${VPN_SUBNET#*/}
 
+# The PC validates this too, but install.sh is also usable by hand.
+is_ipv4() {
+    _ipv4_v=$1
+    case "$_ipv4_v" in '' | *[!0-9.]*) return 1 ;; esac
+    _ipv4_n=0
+    _ipv4_ifs=$IFS; IFS=.
+    for _ipv4_o in $_ipv4_v; do
+        [ -n "$_ipv4_o" ] && [ "$_ipv4_o" -le 255 ] || { IFS=$_ipv4_ifs; return 1; }
+        _ipv4_n=$((_ipv4_n + 1))
+    done
+    IFS=$_ipv4_ifs
+    [ "$_ipv4_n" -eq 4 ]
+}
+
+if [ "$1" != "--uninstall" ]; then
+    case "$VPN_SUBNET" in
+        *.0/24) is_ipv4 "${VPN_SUBNET%/*}" || die "VPN_SUBNET has no IPv4 address" ;;
+        *)      die "VPN_SUBNET must be a /24 starting at .0 (e.g. 10.7.0.0/24)" ;;
+    esac
+    case "$WG_PORT" in '' | *[!0-9]*) die "WG_PORT must be 1-65535" ;; esac
+    [ "$WG_PORT" -ge 1 ] && [ "$WG_PORT" -le 65535 ] || die "WG_PORT must be 1-65535"
+fi
+
 # sections <config> <type> - real section names (cfgXXXX for anonymous ones)
 sections() { uci -X show "$1" 2>/dev/null | sed -n "s/^$1\.\([^.=]*\)=$2\$/\1/p"; }
 
@@ -142,9 +165,7 @@ seed_firewall() {
         _n=0
         for E in $VPN_LAN_ACCESS; do
             _ip=${E%%:*}; _r=${E#*:}; _proto=${_r%%:*}; _port=${_r#*:}
-            case "$_ip" in
-                '' | *[!0-9.]*) die "bad VPN_LAN_ACCESS IP '$_ip' (want ip:tcp|udp:port)" ;;
-            esac
+            is_ipv4 "$_ip" || die "bad VPN_LAN_ACCESS IP '$_ip' (want ip:tcp|udp:port)"
             case "$_proto" in
                 tcp | udp) ;;
                 *) die "bad VPN_LAN_ACCESS protocol '$_proto' (want tcp or udp)" ;;
@@ -285,8 +306,16 @@ client_add() {
     done
     _used=$(for S in $(sections network wireguard_wg0); do uci -q get "network.$S.allowed_ips"; done)
     if [ -z "$_ip" ]; then
-        _last=$(echo "$_used" | tr ' ' '\n' | sed -n "s|^$VPN_BASE\.\([0-9]*\)/32$|\1|p" | sort -n | tail -n1)
-        _ip=$VPN_BASE.$(( ${_last:-1} + 1 ))
+        # First free host, not "highest used + 1": a revoked client's
+        # address should be reusable even when a higher one is in use.
+        _n=2
+        while [ "$_n" -le 254 ]; do
+            _cand="$VPN_BASE.$_n"
+            echo "$_used" | tr ' ' '\n' | grep -Fqx "$_cand/32" \
+                || { _ip=$_cand; break; }
+            _n=$((_n + 1))
+        done
+        [ -n "$_ip" ] || die "no free client address left in $VPN_SUBNET"
     fi
     # The server is $VPN_BASE.1/24; anything else has no route back through
     # the tunnel, and the client would look connected but reach nothing.
@@ -296,7 +325,7 @@ client_add() {
     esac
     case "$_host" in ''|*[!0-9]*) die "bad client IP $_ip" ;; esac
     [ "$_host" -ge 2 ] && [ "$_host" -le 254 ] || die "$_ip must be ${VPN_BASE}.2-254"
-    echo "$_used" | tr ' ' '\n' | grep -qx "$_ip/32" && die "$_ip already used"
+    echo "$_used" | tr ' ' '\n' | grep -Fqx "$_ip/32" && die "$_ip already used"
 
     _key=$(wg genkey); _psk=$(wg genpsk)
     # An anonymous peer section: a name-derived one could collide when two

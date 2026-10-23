@@ -8,7 +8,9 @@
 #   sh /tmp/bifrost-setup/main-router.sh
 #
 # Safe to re-run after every flash. Reboots at the end only if
-# something actually changed.
+# something actually changed. If GW_IP differs from the router's
+# current LAN address, the first run moves it and reboots; run
+# again at the new address to finish.
 # ========================================================
 
 . "$(dirname "$0")/common.sh"
@@ -35,11 +37,15 @@ uci set network.wan.device="$WAN_DEVICE"
 uci set network.wan.proto='pppoe'
 uci set network.wan.username="$PPPOE_USER"
 uci set network.wan.password="$PPPOE_PASS"
+# IPv4 only. Deleting wan6 alone does not stop PPPoE from negotiating
+# IPv6; ipv6=0 does, and the LAN interface is turned off the same way.
+uci set network.wan.ipv6='0'
 
 uci set network.lan.proto='static'
 _OLD_LAN=$(uci -q get network.lan.ipaddr)
 uci set network.lan.ipaddr="$GW_IP"
 uci set network.lan.netmask="$NETMASK"
+uci set network.lan.ipv6='0'
 uci -q delete network.lan.ip6assign
 uci set network.lan.delegate='0'
 uci -q delete network.globals.ula_prefix
@@ -55,14 +61,26 @@ ok "WAN pppoe on $WAN_DEVICE, LAN $GW_IP"
 hdr "DHCP/DNS"
 uci set dhcp.@dnsmasq[0].edns0='1'
 uci -q delete dhcp.@dnsmasq[0].server
-for D in $DNS_LIST; do uci add_list dhcp.@dnsmasq[0].server="$D"; done
+if [ -n "$DNS_LIST" ]; then
+    # The list is the whole upstream policy, not a fallback added to the
+    # ISP resolvers: noresolv stops dnsmasq reading the WAN's resolv.conf.
+    for D in $DNS_LIST; do uci add_list dhcp.@dnsmasq[0].server="$D"; done
+    uci set dhcp.@dnsmasq[0].noresolv='1'
+else
+    uci -q delete dhcp.@dnsmasq[0].noresolv
+fi
 uci -q delete dhcp.lan.ra
 uci -q delete dhcp.lan.dhcpv6
 uci -q delete dhcp.lan.ndp
 uci -q delete dhcp.lan.dhcp_option
 [ -n "$DHCP_DNS_OPTION" ] && uci add_list dhcp.lan.dhcp_option="$DHCP_DNS_OPTION"
 uci commit dhcp
-ok "upstream DNS: ${DNS_LIST:-the WAN DNS}; clients get ${DHCP_DNS_OPTION:-the router}"
+if [ -n "$DNS_LIST" ]; then
+    ok "upstream DNS: $DNS_LIST (only these)"
+else
+    ok "upstream DNS: the WAN DNS"
+fi
+ok "clients get ${DHCP_DNS_OPTION:-the router}"
 
 # ---- NAT offload: established flows bypass the CPU ----------------
 # In hardware where the SoC supports it; fw4 falls back to software.
@@ -78,6 +96,13 @@ ok "flow offloading (hw) enabled"
 [ "$GW_IP" = "$_OLD_LAN" ] || exec >/tmp/main-router.log 2>&1
 /etc/init.d/network reload >/dev/null 2>&1 || /etc/init.d/network restart
 /etc/init.d/dnsmasq restart >/dev/null 2>&1
+if [ "$GW_IP" != "$_OLD_LAN" ]; then
+    # The address changed. Stop here and reboot; the next run at GW_IP
+    # installs packages and configures Wi-Fi without racing this one.
+    say "  moved from $_OLD_LAN to $GW_IP"
+    say "  run ./deploy.sh again once it is back"
+    reboot_now 0
+fi
 sleep 5
 
 if wait_for_internet; then

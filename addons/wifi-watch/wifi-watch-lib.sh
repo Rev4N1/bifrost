@@ -63,7 +63,9 @@ match_person() {
 # lowercase mac -> person, from PEOPLE_MAC="mac=name ..."
 match_person_mac() {
     for _pair in $PEOPLE_MAC; do
-        [ "$1" = "$(echo "${_pair%%=*}" | tr 'A-F' 'a-f')" ] && { echo "${_pair#*=}"; return 0; }
+        _pat=${_pair%%=*}
+        [ -n "$_pat" ] || continue
+        [ "$1" = "$(echo "$_pat" | tr 'A-F' 'a-f')" ] && { echo "${_pair#*=}"; return 0; }
     done
 }
 

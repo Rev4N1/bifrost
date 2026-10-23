@@ -49,6 +49,42 @@ is_hostname() {
 
 is_uint() { case "$1" in '' | *[!0-9]*) return 1 ;; esac; }
 
+# A LAN mask must be contiguous: 255.255.255.0 is valid, 255.0.255.0 is
+# not. /31 and /32 are point-to-point masks, not LAN masks.
+is_netmask() {
+    is_ipv4 "$1" || return 1
+    local IFS=. _o _bits=0 _zero=0
+    for _o in $1; do
+        case "$_o" in
+            255) [ "$_zero" = 0 ] || return 1; _bits=$((_bits + 8)) ;;
+            254) [ "$_zero" = 0 ] || return 1; _bits=$((_bits + 7)); _zero=1 ;;
+            252) [ "$_zero" = 0 ] || return 1; _bits=$((_bits + 6)); _zero=1 ;;
+            248) [ "$_zero" = 0 ] || return 1; _bits=$((_bits + 5)); _zero=1 ;;
+            240) [ "$_zero" = 0 ] || return 1; _bits=$((_bits + 4)); _zero=1 ;;
+            224) [ "$_zero" = 0 ] || return 1; _bits=$((_bits + 3)); _zero=1 ;;
+            192) [ "$_zero" = 0 ] || return 1; _bits=$((_bits + 2)); _zero=1 ;;
+            128) [ "$_zero" = 0 ] || return 1; _bits=$((_bits + 1)); _zero=1 ;;
+            0)   _zero=1 ;;
+            *)   return 1 ;;
+        esac
+    done
+    [ "$_bits" -ge 8 ] && [ "$_bits" -le 30 ]
+}
+
+# IPv4 address as one integer. Only called after is_ipv4.
+ip_to_int() {
+    local IFS=. _a _b _c _d
+    read -r _a _b _c _d <<< "$1"
+    printf '%s\n' "$(( (_a << 24) | (_b << 16) | (_c << 8) | _d ))"
+}
+
+# ip_in_subnet <ip> <gateway> <netmask>
+ip_in_subnet() {
+    local _m
+    _m=$(ip_to_int "$3") || return 1
+    [ "$(( $(ip_to_int "$1") & _m ))" -eq "$(( $(ip_to_int "$2") & _m ))" ]
+}
+
 # check_wg - part 6 of bifrost.conf, before it reaches the router
 check_wg() {
     require GW_IP ROOT_PASSWORD WG_PORT VPN_SUBNET CLIENT_DNS
@@ -166,7 +202,8 @@ port_open() { timeout 3 bash -c "</dev/tcp/$1/22" 2>/dev/null; }
 # (exit 2), before anything runs or is mistaken for a reboot.
 router_run() {
     local dir="/tmp/bifrost-${2##*/}"
-    pw "$1" ssh "${SSH_OPTS[@]}" "root@$1" "rm -rf $dir" >/dev/null 2>&1 || true
+    pw "$1" ssh "${SSH_OPTS[@]}" "root@$1" "rm -rf $dir" >/dev/null 2>&1 \
+        || { warn "couldn't clear $dir on $1 - not running a stale copy"; return 2; }
     pw "$1" scp -O -q -r "${SSH_OPTS[@]}" "$2" "root@$1:$dir" \
         || { warn "couldn't copy to $1 - wrong ROOT_PASSWORD, or not reachable?"; return 2; }
     pw "$1" ssh -t "${SSH_OPTS[@]}" "root@$1" "${3//@DIR@/$dir}"

@@ -49,6 +49,15 @@ setup_system() {
     uci set system.@system[0].hostname="$1"
     uci set system.@system[0].zonename="$ZONENAME"
     uci set system.@system[0].timezone="$TIMEZONE"
+    # Keep the router's own clock on the configured server, not only the
+    # one-shot sync below. The default OpenWrt pool works, but a single
+    # NTP_SERVER in bifrost.conf should actually be used.
+    if uci -q get system.ntp >/dev/null; then
+        uci -q delete system.ntp.server
+        uci add_list system.ntp.server="$NTP_SERVER"
+        uci set system.ntp.enabled='1'
+        uci set system.ntp.enable_server='0'
+    fi
     uci commit system
     ( echo "$ROOT_PASSWORD"; sleep 1; echo "$ROOT_PASSWORD" ) | passwd root >/dev/null 2>&1 \
         && ok "hostname $1, root password set" \
@@ -240,12 +249,23 @@ finish() {
         say "  no config change - not rebooting"
         exit 0
     fi
-    # Reboot in the background and exit 100, so deploy.sh knows for sure
-    # a reboot is coming: a plain `reboot` returns at once, and the SSH
-    # session would often end with 0, as if nothing had changed. HUP is
-    # ignored (top of this file), so the session closing can't stop it.
-    say "  rebooting in 3s"
+    reboot_now
+}
+
+# Reboot in the background and exit 100, so deploy.sh knows for sure a
+# reboot is coming: a plain `reboot` returns at once, and the SSH session
+# would often end with 0, as if nothing had changed. HUP is ignored (top
+# of this file), so the session closing can't stop it. Pass 0 when the
+# session is already gone (an IP move): there is no exit code to deliver,
+# and rebooting at once leaves less time for the new address to look up.
+reboot_now() {
+    _delay=${1:-3}
+    if [ "$_delay" = 0 ]; then
+        say "  rebooting now"
+    else
+        say "  rebooting in ${_delay}s"
+    fi
     sync
-    ( sleep 3; reboot ) </dev/null >/dev/null 2>&1 &
+    ( sleep "$_delay"; reboot ) </dev/null >/dev/null 2>&1 &
     exit 100
 }

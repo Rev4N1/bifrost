@@ -86,6 +86,8 @@ named because it boots on the main router's address.
 
    On the very first run the APs are not set up yet, so it configures the main
    router, names the APs it skipped, and leaves the addons for the next run.
+   If `GW_IP` is not the factory `192.168.1.1`, this first run moves the main
+   router and reboots it; run the command again at the new address to finish.
 
    By hand:
 
@@ -101,14 +103,13 @@ named because it boots on the main router's address.
    ```
 
    Plug the PC into one of its **LAN** ports, not its WAN port. Its `AP_IP`
-   in `APS` must be on the same subnet as `192.168.1.1` (the default
-   `192.168.1.2`, `.3`, …): the PC keeps that address while the AP moves.
+   in `APS` must be on the same subnet as `GW_IP` (by default `192.168.1.2`,
+   `.3`, …): the PC keeps that address while the AP moves.
 
-   It finds the AP at 192.168.1.1, configures it, and waits for its own IP (the
-   session freezes mid-run, that's fine). Plug it into the main LAN as soon as
-   it freezes: it waits up to two minutes for internet before installing the
-   roaming packages. On that first run its later output, including the wait
-   message, is in `/tmp/dumb-ap.log` on the AP, not on your PC.
+   The first run sets the AP's hostname and password, moves it to its final
+   address, and reboots it. It deliberately stops there: the SSH session is
+   gone, so it cannot install packages or configure Wi-Fi reliably. Once it
+   is back, plug it into the main LAN.
 
    **Use `ap <name>` whenever the device at 192.168.1.1 is an AP.** Bare
    `./deploy.sh` treats a factory device there as the main router.
@@ -120,16 +121,17 @@ named because it boots on the main router's address.
    Write-RouterConf setup/network.conf $ap; ssh-keygen -R 192.168.1.1; $d = "/tmp/bifrost-setup-$(Get-Random)"; scp -O -r setup "root@192.168.1.1:$d"; ssh -t root@192.168.1.1 "sh $d/dumb-ap.sh <hostname>"
    ```
 
-3. **Once every AP is up**, run the same command again. This time it reaches
-   all of them and applies the addons:
+3. **Once every AP is up and plugged into the main LAN**, run the same command
+   again. This time it reaches all of them, finishes their package and Wi-Fi
+   setup, and applies the addons:
 
    ```bash
    ./deploy.sh
    ```
 
-   After a factory AP, the first run stops before the addons: the AP is still
-   finishing and is about to reboot. Running it again is the normal flow (and
-   is why this step exists).
+   The first `ap` run only moved each factory AP (and set its hostname and
+   password) and rebooted it. This second run is the normal one; after that,
+   a re-run is just maintenance.
 
    The Telegram bot is applied when `BOT_TOKEN` is set; WireGuard when
    `WG_PORT` is set. By hand (it also needs the APs' IPs, and asks each AP's
@@ -228,10 +230,11 @@ addons/
 - **An IP change is expected.** A factory AP (or a main router moving off
   `192.168.1.1`) drops the SSH session mid-run. The script ignores the hangup
   and keeps its later output in `/tmp/main-router.log` or `/tmp/dumb-ap.log`
-  on that router; `deploy.sh` waits for the new address. If a move skipped the
-  addons, the next run applies them. A PC on the old subnet cannot follow a
-  move to a different one, so the first run is simplest with
-  `GW_IP=192.168.1.1` and AP IPs in `192.168.1.x`.
+  on that router; `deploy.sh` waits for the new address. A router whose
+  address changes stops after the move and reboots, so the next run at the
+  new address can finish it without racing the first one. A PC on the old
+  subnet cannot follow a move to a different one, so the first run is
+  simplest with `GW_IP=192.168.1.1` and AP IPs in `192.168.1.x`.
 - **Host keys aren't pinned.** Every flash gives a router a new SSH host key,
   so pinning would break every run. `deploy.sh` only talks to your own devices
   on your LAN.

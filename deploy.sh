@@ -5,7 +5,8 @@
 # Settings: bifrost.conf.
 #
 #   ./deploy.sh              main router, every AP, then the addons in use
-#   ./deploy.sh ap <name>    one AP, including a factory-fresh one
+#   ./deploy.sh ap <name>    one AP; a factory-fresh one is moved to its
+#                            final address and rebooted (run bare next)
 #
 # Bare, the same command configures a freshly reset network
 # and maintains it after upgrades. Every device is safe to
@@ -48,7 +49,8 @@ deploy.sh - the one command you run on the PC
 
   ./deploy.sh              configure or maintain everything: main router,
                            every AP, then the addons in use
-  ./deploy.sh ap <name>    one AP, including a factory-fresh one at 192.168.1.1
+  ./deploy.sh ap <name>    one AP; a factory-fresh one at 192.168.1.1 is
+                           moved to its final address and rebooted
 
 Every device is safe to re-run, and reboots only when something changed.
 Settings: bifrost.conf.
@@ -72,11 +74,20 @@ hostname_at() {
     pw "$1" ssh "${SSH_OPTS[@]}" "root@$1" "uci -q get system.@system[0].hostname" 2>/dev/null || true
 }
 
-# wait_up <ip> - poll until SSH answers again (5 minutes at most)
+# wait_up <ip> [stable seconds] - poll until SSH answers again (5 minutes)
 wait_up() {
-    local _deadline=$((SECONDS + 300))
+    local _stable=${2:-5} _deadline=$((SECONDS + 300))
     while [ "$SECONDS" -lt "$_deadline" ]; do
-        if port_open "$1"; then sleep 5; printf '    %s is up\n' "$1"; return 0; fi
+        if port_open "$1"; then
+            # The port can answer during the last seconds before a reboot.
+            # Require it to stay up, so a router that has just moved is not
+            # mistaken for one that has finished rebooting.
+            sleep "$_stable"
+            if port_open "$1"; then
+                printf '    %s is up\n' "$1"
+                return 0
+            fi
+        fi
         sleep 2
     done
     die "$1 didn't come back within 5 minutes"
@@ -101,14 +112,20 @@ wait_reboot() {
     if [ "$_down" = 0 ] && [ "$1" = "$2" ]; then
         die "$1 did not go down - the setup session failed (no reboot)"
     fi
-    wait_up "$2"
+    # A moved router is already answering on the new address while it shuts
+    # down. Require a longer quiet period before believing it is back.
+    if [ "$1" = "$2" ]; then
+        wait_up "$2"
+    else
+        wait_up "$2" 10
+    fi
 }
 
 # run_step <ip> <local dir> <remote command> <ip after>
 # The setup scripts exit 0 when nothing changed, and 100 when they are
-# about to reboot. A dropped session (255) is a dumb AP moving to its
-# own IP mid-run; it then finishes and reboots by itself. Anything else
-# is a real failure: stop there.
+# about to reboot. A dropped session (255) is a router moving to its
+# own IP mid-run; it then reboots by itself. Anything else is a real
+# failure: stop there.
 run_step() {
     local rc=0
     router_run "$1" "$2" "$3" || rc=$?
@@ -117,10 +134,10 @@ run_step() {
     unset "PW_MODES[$1]" "PW_PASSES[$1]" "PW_MODES[$4]" "PW_PASSES[$4]" 2>/dev/null || true
     case "$rc" in
         0)       say "  no config change - no reboot" ;;
-        100)     wait_reboot "$1" "$4" ;;
-        255)     # The IP moved mid-run. The script keeps going (it ignores
-                 # HUP/PIPE), but its new SSH port answers before it has
-                 # finished; remember it so the addons don't race it.
+        100)     [ "$1" = "$4" ] || MOVED=1
+                 wait_reboot "$1" "$4" ;;
+        255)     # The IP moved mid-run; the router stops after the move
+                 # and reboots. Remember it so the addons don't race it.
                  MOVED=1
                  wait_reboot "$1" "$4" ;;
         *)       die "setup failed on $1 (exit $rc)" ;;
@@ -140,7 +157,7 @@ ap_ip() {
 require_net() {
     require SSID WPA_PSK COUNTRY ROOT_PASSWORD ZONENAME TIMEZONE GW_IP NETMASK NTP_SERVER MAIN_HOSTNAME
     is_ipv4 "$GW_IP" || die "GW_IP must be an IPv4 address (got '$GW_IP')"
-    is_ipv4 "$NETMASK" || die "NETMASK must be an IPv4 mask (got '$NETMASK')"
+    is_netmask "$NETMASK" || die "NETMASK must be a contiguous IPv4 mask, /8 to /30 (got '$NETMASK')"
     is_hostname "$MAIN_HOSTNAME" || die "MAIN_HOSTNAME must be a-z, 0-9 and - (got '$MAIN_HOSTNAME')"
     case "$COUNTRY" in
         [A-Z][A-Z]) ;;
@@ -156,7 +173,12 @@ require_net() {
     case "${BW5:-}" in 20 | 40 | 80 | 160) ;; *) die "BW5 must be 20, 40, 80 or 160" ;; esac
     [ -z "${TXPOWER_24:-}" ] || is_uint "$TXPOWER_24" || die "TXPOWER_24 must be a number or empty"
     case "${UPNP:-0}" in 0 | 1) ;; *) die "UPNP must be 0 or 1" ;; esac
-    local _d _e _n _ip _ach24 _ach5 _names=" " _ips=" "
+    local _d _e _n _ip _ach24 _ach5 _names=" " _ips=" " _mask _hostbits _host
+    _mask=$(ip_to_int "$NETMASK")
+    _hostbits=$((0xFFFFFFFF ^ _mask))
+    _host=$(( $(ip_to_int "$GW_IP") & _hostbits ))
+    [ "$_host" -ne 0 ] && [ "$_host" -ne "$_hostbits" ] \
+        || die "GW_IP '$GW_IP' is the network or broadcast address of $NETMASK"
     # Empty DNS_LIST is allowed: dnsmasq then follows the WAN's resolvers.
     for _d in ${DNS_LIST:-}; do
         is_ipv4 "$_d" || die "DNS_LIST entry '$_d' is not an IPv4 address"
@@ -173,12 +195,11 @@ require_net() {
         [ "$_n" != OpenWrt ] || die "APS hostname 'OpenWrt' is reserved"
         is_ipv4 "$_ip" || die "APS IP '$_ip' is not an IPv4 address"
         [ "$_ip" != "$GW_IP" ] || die "APS IP '$_ip' is GW_IP (the main router)"
-        case "$NETMASK" in
-            255.255.255.0)
-                [ "${_ip%.*}" = "${GW_IP%.*}" ] \
-                    || die "AP $_n: $_ip is not in GW_IP's /24"
-                ;;
-        esac
+        ip_in_subnet "$_ip" "$GW_IP" "$NETMASK" \
+            || die "AP $_n: $_ip is not in GW_IP's $NETMASK subnet"
+        _host=$(( $(ip_to_int "$_ip") & _hostbits ))
+        [ "$_host" -ne 0 ] && [ "$_host" -ne "$_hostbits" ] \
+            || die "AP $_n: $_ip is the network or broadcast address"
         is_uint "$_ach24" && [ "$_ach24" -ge 1 ] && [ "$_ach24" -le 14 ] \
             || die "AP $_n: ch24 must be 1-14"
         is_uint "$_ach5" && [ "$_ach5" -ge 32 ] && [ "$_ach5" -le 177 ] \
@@ -221,7 +242,7 @@ cmd_main() {
         h=$(hostname_at "$FACTORY_IP")
         if [ "$h" = OpenWrt ] || [ "$h" = "$MAIN_HOSTNAME" ]; then
             say "main router at $FACTORY_IP"
-            warn "it moves to $GW_IP; this PC must be able to reach that subnet afterwards"
+            warn "it moves to $GW_IP and reboots; this PC must be able to reach that subnet, then run ./deploy.sh again"
             run_step "$FACTORY_IP" "$(stage setup network.conf "$MAIN_VARS")" \
                 "sh @DIR@/main-router.sh" "$GW_IP"
             SSH_OPTS=("${saved_opts[@]}")
@@ -269,13 +290,14 @@ cmd_ap() {
             192.168.1.*) ;;
             *) warn "a factory AP moves to $ip; a PC on 192.168.1.x will lose it - use a 192.168.1.x AP_IP for the first run" ;;
         esac
-        echo "    Only your PC should be plugged into it. It moves to $ip mid-run"
-        echo "    (the session freezes, that's fine). Plug it into the main LAN"
-        echo "    then; it waits up to 120s for internet (log: /tmp/dumb-ap.log"
-        echo "    on the AP)."
+        echo "    Only your PC should be plugged into it. It moves to $ip,"
+        echo "    reboots, and stops there; plug it into the main LAN and"
+        echo "    run ./deploy.sh again to install packages and Wi-Fi."
         run_step "$FACTORY_IP" "$(stage setup network.conf "$AP_VARS")" \
             "sh @DIR@/dumb-ap.sh $name" "$ip"
         SSH_OPTS=("${saved_opts[@]}")
+        [ "$ip" = "$FACTORY_IP" ] \
+            || warn "AP $name is at $ip now - plug it into the main LAN, then run ./deploy.sh"
         return 0
     fi
     SSH_OPTS=("${saved_opts[@]}")
@@ -323,10 +345,9 @@ cmd_all() {
         warn "run ./deploy.sh ap <name> with only that AP plugged in, then ./deploy.sh again"
         exit 1
     fi
-    # A router that changed IP mid-run is still finishing and about to
-    # reboot, even though its new SSH port answers. Don't let the addons
-    # race it; the next run is the normal one for addons after a first
-    # configuration.
+    # A router that changed IP mid-run may still be finishing or rebooting.
+    # Don't let the addons race it; the next run is the normal one for
+    # addons after a first configuration.
     if [ "$MOVED" = 1 ]; then
         warn "a router moved IP mid-run - addons wait for the next run"
         warn "run ./deploy.sh again once it is back"
