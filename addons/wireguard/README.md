@@ -16,10 +16,18 @@ bring `wg0` back up.
 |---|---|---|
 | Interface `wg0`, its key, listen port, peers | Network → Interfaces → wg0 | `network.wg0` |
 | Zone `vpn`: VPN → internet, nothing else | Network → Firewall → Zones | `firewall.wgvpn`, `wgvpn_wan` |
-| One rule per `VPN_LAN_ACCESS` entry | Network → Firewall → Traffic Rules | `firewall.wgvpn_lan<N>` |
+| One rule per `VPN_LAN_ACCESS` entry (synced every deploy) | Network → Firewall → Traffic Rules | `firewall.wgvpn_lan<N>` |
 | Ping the router from the VPN | Network → Firewall → Traffic Rules | `firewall.wgvpn_ping` |
 | WAN `udp/WG_PORT` open | Network → Firewall → Traffic Rules | `firewall.wgvpn_in` |
 | DuckDNS | Services → Dynamic DNS | `ddns.duckdns` |
+
+**The exception: the `wgvpn_lan<N>` rules follow `VPN_LAN_ACCESS` on every
+deploy.** Remove an entry from `bifrost.conf` and the next `./deploy.sh` removes
+its rule; add one and it appears. Don't edit those rules in LuCI (the next deploy
+puts them back); for extra LAN access, add your own rule in LuCI instead: it gets
+an anonymous `cfgXXXX` section, which deploy never touches. Existing client
+configs keep the `AllowedIPs` they were made with; only new clients (or a
+re-generated config) route the new set of hosts.
 
 The router itself is closed to VPN clients (zone input `REJECT`), except for
 ping. To manage it over the VPN, add a rule in LuCI.

@@ -8,7 +8,8 @@
 # bifrost.conf seeds it, LuCI owns it. The first run creates
 # each piece from wireguard.conf (written by deploy.sh); after
 # that, a piece that exists is never touched again, so what
-# you change in LuCI stays. Re-runs (e.g. after every flash)
+# you change in LuCI stays. The exception is the LAN service
+# rules (firewall.wgvpn_lan*): they always follow VPN_LAN_ACCESS. Re-runs (e.g. after every flash)
 # reinstall the packages and bring wg0 back up.
 #
 #   - interface wg0 with its key       (network.wg0)
@@ -164,6 +165,55 @@ seed_interface() {
     ok "created: $VPN_BASE.1/$VPN_PREFIX, udp/$WG_PORT"
 }
 
+# sync_lan_rules - make the wgvpn_lan<N> rules match VPN_LAN_ACCESS exactly.
+# Unlike the rest of the addon these are owned by bifrost.conf: an entry
+# removed there is removed from the router on the next deploy. Rules made
+# in LuCI are anonymous sections (cfgXXXX), so they are never touched.
+sync_lan_rules() {
+    _vz=$(uci -q get "firewall.$(wg_zone).name"); _vz=${_vz:-vpn}
+    _want=""
+    for E in $VPN_LAN_ACCESS; do
+        _ip=${E%%:*}; _r=${E#*:}; _proto=${_r%%:*}; _port=${_r#*:}
+        is_ipv4 "$_ip" || die "bad VPN_LAN_ACCESS IP '$_ip' (want ip:tcp|udp:port)"
+        case "$_proto" in
+            tcp | udp) ;;
+            *) die "bad VPN_LAN_ACCESS protocol '$_proto' (want tcp or udp)" ;;
+        esac
+        case "$_port" in
+            '' | *[!0-9]*) die "bad VPN_LAN_ACCESS port '$_port'" ;;
+        esac
+        [ "$_port" -ge 1 ] && [ "$_port" -le 65535 ] \
+            || die "VPN_LAN_ACCESS port $_port must be 1-65535"
+        _want="$_want $_vz:$_ip:$_proto:$_port"
+    done
+    _have=""; _old=""
+    for S in $(sections firewall rule); do
+        case "$S" in wgvpn_lan[0-9]*) ;; *) continue ;; esac
+        _old="$_old $S"
+        _have="$_have $(uci -q get "firewall.$S.src"):$(uci -q get "firewall.$S.dest_ip"):$(uci -q get "firewall.$S.proto"):$(uci -q get "firewall.$S.dest_port")"
+    done
+    if [ "$_have" = "$_want" ]; then
+        ok "LAN services match VPN_LAN_ACCESS ($(echo "$_want" | wc -w))"
+        return
+    fi
+    # Rebuild rather than patch, so the numbering always follows the list.
+    for S in $_old; do uci delete "firewall.$S"; done
+    _n=0
+    for E in $_want; do
+        _ip=${E#*:}; _ip=${_ip%%:*}; _r=${E#*:*:}; _proto=${_r%%:*}; _port=${_r#*:}
+        _n=$((_n + 1))
+        uci set "firewall.wgvpn_lan$_n=rule"
+        uci set "firewall.wgvpn_lan$_n.name=vpn-$_ip-$_proto-$_port"
+        uci set "firewall.wgvpn_lan$_n.src=$_vz"
+        uci set "firewall.wgvpn_lan$_n.dest=lan"
+        uci set "firewall.wgvpn_lan$_n.dest_ip=$_ip"
+        uci set "firewall.wgvpn_lan$_n.proto=$_proto"
+        uci set "firewall.wgvpn_lan$_n.dest_port=$_port"
+        uci set "firewall.wgvpn_lan$_n.target=ACCEPT"
+    done
+    ok "LAN services synced to VPN_LAN_ACCESS: $(echo "$_old" | wc -w) old rule(s) replaced by $_n"
+}
+
 seed_firewall() {
     hdr "Firewall"
     _z=$(wg_zone)
@@ -189,32 +239,9 @@ seed_firewall() {
         uci add_list firewall.wgvpn_ping.icmp_type='echo-request'
         uci set firewall.wgvpn_ping.target='ACCEPT'
 
-        # VPN -> the LAN services in VPN_LAN_ACCESS, nothing else on the LAN
-        _n=0
-        for E in $VPN_LAN_ACCESS; do
-            _ip=${E%%:*}; _r=${E#*:}; _proto=${_r%%:*}; _port=${_r#*:}
-            is_ipv4 "$_ip" || die "bad VPN_LAN_ACCESS IP '$_ip' (want ip:tcp|udp:port)"
-            case "$_proto" in
-                tcp | udp) ;;
-                *) die "bad VPN_LAN_ACCESS protocol '$_proto' (want tcp or udp)" ;;
-            esac
-            case "$_port" in
-                '' | *[!0-9]*) die "bad VPN_LAN_ACCESS port '$_port'" ;;
-            esac
-            [ "$_port" -ge 1 ] && [ "$_port" -le 65535 ] \
-                || die "VPN_LAN_ACCESS port $_port must be 1-65535"
-            _n=$((_n + 1))
-            uci set "firewall.wgvpn_lan$_n=rule"
-            uci set "firewall.wgvpn_lan$_n.name=vpn-$_ip-$_proto-$_port"
-            uci set "firewall.wgvpn_lan$_n.src=vpn"
-            uci set "firewall.wgvpn_lan$_n.dest=lan"
-            uci set "firewall.wgvpn_lan$_n.dest_ip=$_ip"
-            uci set "firewall.wgvpn_lan$_n.proto=$_proto"
-            uci set "firewall.wgvpn_lan$_n.dest_port=$_port"
-            uci set "firewall.wgvpn_lan$_n.target=ACCEPT"
-        done
-        ok "zone vpn created: internet, ping, and $_n LAN service(s)"
+        ok "zone vpn created: internet and ping"
     fi
+    sync_lan_rules
 
     if uci -q get firewall.wgvpn_in >/dev/null; then
         ok "WAN rule exists - left as it is"

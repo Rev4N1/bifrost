@@ -82,13 +82,15 @@ AP_FAIL_GRACE=10            # checks an AP may be unreachable before it's ignore
 
 # ======== 6. WireGuard VPN on the main router (optional: off while WG_PORT is empty) ========
 # Seeds the router once (addons/wireguard/README.md); after the
-# first deploy, edit it in LuCI and these values are no longer read.
+# first deploy, edit it in LuCI and these values are no longer read,
+# except VPN_LAN_ACCESS, which every deploy applies exactly.
 
 WG_PORT=""                  # e.g. 51820 (WireGuard's usual port) to turn it on
 VPN_SUBNET="10.7.0.0/24"    # a /24 that must not overlap the LAN: router .1, clients .2+
 CLIENT_DNS=""               # DNS for clients, e.g. "9.9.9.9, 1.1.1.1"; empty = no DNS line, they keep their own
 VPN_LAN_ACCESS=""           # LAN services VPN clients may reach, "ip:proto:port", e.g. "192.168.1.20:tcp:3389"
                             # (everything else on the LAN is blocked; give those hosts static IPs).
+                            # Synced every deploy: an entry removed here is removed from the router.
                             # New clients route only these hosts through the tunnel; empty = all (0.0.0.0/0).
 
 # DuckDNS keeps <subdomain>.duckdns.org pointing at your home IP (empty = clients use the WAN IP)
