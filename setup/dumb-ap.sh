@@ -31,10 +31,7 @@ hdr "Network"
 
 # Read the WAN port name before the wan interface is deleted. On a
 # re-run it is already gone, and the port is already in the bridge.
-# 25.12 names it device=; ifname= is the pre-DSA spelling, still seen on
-# a restored factory config.
 WAN_PORT=$(uci -q get network.wan.device)
-[ -n "$WAN_PORT" ] || WAN_PORT=$(uci -q get network.wan.ifname)
 uci -q delete network.wan
 uci -q delete network.wan6
 

@@ -29,8 +29,7 @@ ROOT_PASSWORD="CHANGE_ME"
 
 # ======== 2. Internet (main router) ========
 
-WAN_DEVICE="eth1"           # WAN netdev: usually "wan" on DSA (25.12), "eth1" on swconfig
-                            # check: uci get network.wan.device (or network.wan.ifname)
+WAN_DEVICE="eth1"           # the WAN port's name: on a factory router, uci get network.wan.device
 PPPOE_USER="CHANGE_ME"
 PPPOE_PASS="CHANGE_ME"
 DNS_LIST="9.9.9.11 149.112.112.11"   # upstream resolvers, space separated; when set, only these; empty = the WAN's
