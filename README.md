@@ -12,7 +12,8 @@ just run it again.
   offload, packet steering, and optional UPnP.
 - **WireGuard:** a VPN server on the main router, kept reachable by DuckDNS.
   VPN clients reach only the LAN services you list and route only those
-  through the tunnel (full tunnel when none are listed). All of it is editable in LuCI.
+  through the tunnel (full tunnel when none are listed). All of it is
+  editable in LuCI.
 - **Telegram bot:** tells a chat when someone's phone leaves or comes home.
 
 The whole design is IPv4-only on the LAN and WAN, and targets **OpenWrt 25.12**
@@ -183,7 +184,6 @@ router/
 addons/
   wifi-watch/             Telegram bot (own README)
   wireguard/              VPN server + DuckDNS, managed in LuCI (own README)
-.github/workflows/ci.yml  syntax + ShellCheck on every push
 ```
 
 - **Each device only gets its own part of `bifrost.conf`.** `deploy.sh` writes
