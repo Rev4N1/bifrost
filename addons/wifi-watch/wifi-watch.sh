@@ -130,7 +130,12 @@ ap_fail_file() { echo "$STATE_DIR/apfail_$(echo "$1" | tr -c 'a-zA-Z0-9' '_')"; 
 
 ap_fail_count() {
     _f=$(ap_fail_file "$1")
-    [ -f "$_f" ] && cat "$_f" || echo 0
+    if [ -s "$_f" ]; then
+        _c=$(cat "$_f")
+        case "$_c" in '' | *[!0-9]*) echo 0 ;; *) echo "$_c" ;; esac
+    else
+        echo 0
+    fi
 }
 
 # Refresh $ASSOC and set APS_DEGRADED=1 if any AP we still trust went silent.
@@ -144,13 +149,15 @@ collect_assoc() {
             [ "$(ap_fail_count "$H")" -gt 0 ] && log "AP $H reachable again"
             echo 0 > "$_f"
         else
-            _n=$(( $(ap_fail_count "$H") + 1 ))
-            echo "$_n" > "$_f"
-            if [ "$_n" -le "$AP_FAIL_GRACE" ]; then
+            # collect_assoc runs inside confirm_absent's loop; keep the AP
+            # failure count in its own variable so it cannot clobber the round.
+            _fails=$(( $(ap_fail_count "$H") + 1 ))
+            echo "$_fails" > "$_f"
+            if [ "$_fails" -le "$AP_FAIL_GRACE" ]; then
                 APS_DEGRADED=1
-                log "WARN: AP $H unreachable ($_n/$AP_FAIL_GRACE), holding departures"
-            elif [ "$_n" -eq $((AP_FAIL_GRACE + 1)) ]; then
-                log "WARN: AP $H down for $_n polls, treating as offline and resuming departures"
+                log "WARN: AP $H unreachable ($_fails/$AP_FAIL_GRACE), holding departures"
+            elif [ "$_fails" -eq $((AP_FAIL_GRACE + 1)) ]; then
+                log "WARN: AP $H down for $_fails polls, treating as offline and resuming departures"
             fi
         fi
     done
@@ -232,13 +239,13 @@ person_present() {
 # essentially impossible for one to be mistaken for a departure.
 confirm_absent() {
     _person="$1"
-    _n=0
-    while [ "$_n" -lt "$CONFIRM_ROUNDS" ]; do
+    _round=0
+    while [ "$_round" -lt "$CONFIRM_ROUNDS" ]; do
         sleep "$CONFIRM_GAP"
         collect_assoc
         person_present "$_person" 5 && return 1
         [ "$APS_DEGRADED" -eq 1 ] && return 1
-        _n=$((_n + 1))
+        _round=$((_round + 1))
     done
     return 0
 }

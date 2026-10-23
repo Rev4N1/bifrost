@@ -240,6 +240,9 @@ cmd_main() {
         local saved_opts=("${SSH_OPTS[@]}")
         SSH_OPTS=(-o ControlPath=none "${SSH_OPTS[@]}")
         h=$(hostname_at "$FACTORY_IP")
+        if [ -z "$h" ] && port_open "$FACTORY_IP"; then
+            die "$FACTORY_IP opened SSH but did not answer - wrong ROOT_PASSWORD, or not a router?"
+        fi
         if [ "$h" = OpenWrt ] || [ "$h" = "$MAIN_HOSTNAME" ]; then
             say "main router at $FACTORY_IP"
             warn "it moves to $GW_IP and reboots; this PC must be able to reach that subnet, then run ./deploy.sh again"
@@ -248,6 +251,7 @@ cmd_main() {
             SSH_OPTS=("${saved_opts[@]}")
             return 0
         fi
+        [ -z "$h" ] || warn "$FACTORY_IP answered as '$h', not a factory device - left untouched"
         SSH_OPTS=("${saved_opts[@]}")
     fi
     die "main router not reachable at $GW_IP"
@@ -284,6 +288,9 @@ cmd_ap() {
     local saved_opts=("${SSH_OPTS[@]}")
     SSH_OPTS=(-o ControlPath=none "${SSH_OPTS[@]}")
     h=$(hostname_at "$FACTORY_IP")
+    if [ -z "$h" ] && port_open "$FACTORY_IP"; then
+        die "$FACTORY_IP opened SSH but did not answer - wrong ROOT_PASSWORD, or not a router?"
+    fi
     if [ "$h" = OpenWrt ] || [ "$h" = "$name" ]; then
         say "AP $name is at $FACTORY_IP (factory-fresh or mid-setup)"
         case "$ip" in
@@ -311,11 +318,15 @@ cmd_ap() {
     return 1
 }
 
-cmd_wifi_watch() {
+check_watch() {
     require BOT_TOKEN CHAT_ID
     [ -n "${PEOPLE:-}" ] || [ -n "${PEOPLE_MAC:-}" ] \
         || die "set PEOPLE or PEOPLE_MAC in bifrost.conf"
     is_ipv4 "$GW_IP" || die "GW_IP must be an IPv4 address"
+}
+
+cmd_wifi_watch() {
+    check_watch
     say "wifi-watch addon on $GW_IP"
     # AP_PASSWORD lets it authorize its own key on the APs without asking.
     router_run "$GW_IP" "$(stage addons/wifi-watch wifi-watch.conf "$WATCH_VARS")" \
@@ -338,6 +349,10 @@ cmd_wireguard() {
 cmd_all() {
     local e rc=0
     MOVED=0
+    # Validate the addons before touching a router: a typo in part 6
+    # should stop the run, not surface after the network is reconfigured.
+    [ -z "$BOT_TOKEN" ] || check_watch
+    [ -z "$WG_PORT" ] || check_wg
     cmd_main
     for e in $APS; do cmd_ap "${e%%,*}" || rc=1; done
     if [ "$rc" != 0 ]; then

@@ -31,7 +31,10 @@ hdr "Network"
 
 # Read the WAN port name before the wan interface is deleted. On a
 # re-run it is already gone, and the port is already in the bridge.
+# 25.12 names it device=; ifname= is the pre-DSA spelling, still seen on
+# a restored factory config.
 WAN_PORT=$(uci -q get network.wan.device)
+[ -n "$WAN_PORT" ] || WAN_PORT=$(uci -q get network.wan.ifname)
 uci -q delete network.wan
 uci -q delete network.wan6
 
@@ -65,6 +68,10 @@ for S in firewall dnsmasq odhcpd; do
 done
 : > /etc/config/dhcp
 # Belt and braces: netifd writes this file from the interface's DNS.
+# dnsmasq is disabled, so nothing recreates /tmp/resolv.conf at boot and
+# the next run could not resolve the package repo. /tmp is RAM, so point
+# the persistent /etc/resolv.conf at netifd's file too.
+ln -sf /tmp/resolv.conf.d/resolv.conf.auto /etc/resolv.conf
 ln -sf /tmp/resolv.conf.d/resolv.conf.auto /tmp/resolv.conf
 ok "firewall, dnsmasq, odhcpd disabled"
 

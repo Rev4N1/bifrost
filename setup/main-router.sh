@@ -19,6 +19,7 @@
 # config still names it, and a wrong name here leaves the router without
 # internet, so stop before changing anything.
 _WAN_DEV=$(uci -q get network.wan.device)
+[ -n "$_WAN_DEV" ] || _WAN_DEV=$(uci -q get network.wan.ifname)
 _WAN_PROTO=$(uci -q get network.wan.proto)
 if [ "$_WAN_PROTO" != pppoe ] && [ -n "$_WAN_DEV" ] && [ "$_WAN_DEV" != "$WAN_DEVICE" ]; then
     die "factory WAN is '$_WAN_DEV', but WAN_DEVICE is '$WAN_DEVICE' - fix WAN_DEVICE in bifrost.conf"
@@ -33,6 +34,10 @@ hdr "Network"
 uci -q delete network.wan6
 
 uci set network.wan=interface
+# Drop the pre-DSA spelling and a factory bridge type: device= is the
+# whole definition now, and a leftover ifname can confuse netifd.
+uci -q delete network.wan.ifname
+uci -q delete network.wan.type
 uci set network.wan.device="$WAN_DEVICE"
 uci set network.wan.proto='pppoe'
 uci set network.wan.username="$PPPOE_USER"

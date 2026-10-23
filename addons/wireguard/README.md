@@ -54,7 +54,7 @@ the PC:
 
 Adding a peer changes one router setting, so it is not part of `deploy.sh`.
 Run `./deploy.sh` first (or at least once), so the addon is installed.
-`VPN_SUBNET` must stay a `/24` (the router is `.1`, clients get `.2`–`.254`);
+`VPN_SUBNET` must stay a `/24` that does not overlap the LAN (the router is `.1`, clients get `.2`-`.254`);
 a client IP outside it is refused, because the router would have no route back
 through the tunnel.
 

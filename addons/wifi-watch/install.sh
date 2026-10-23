@@ -71,8 +71,13 @@ check_host() {
     fi
     ok "$(uname -n) - $(sed -n "s/^DISTRIB_DESCRIPTION='\(.*\)'/\1/p" /etc/openwrt_release)"
 
+    # A dumb AP has an empty /etc/config/dhcp. Check the config rather than
+    # a lease file: a fresh main router may have no clients yet, and the
+    # notifier still works from association alone until the first lease.
+    uci -q get dhcp.@dnsmasq[0] >/dev/null \
+        || fail "no dnsmasq config - run this on the MAIN router, not a dumb AP"
     if [ ! -f "$LEASES" ]; then
-        fail "$LEASES missing - run this on the MAIN router (the one running dnsmasq), not a dumb AP"
+        warn "$LEASES missing - ARP starts after the first DHCP lease; association still works"
     else
         ok "dnsmasq leases present ($(wc -l < "$LEASES") entries)"
     fi

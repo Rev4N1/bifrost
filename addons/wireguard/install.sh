@@ -28,11 +28,9 @@ CONF="$SRC_DIR/wireguard.conf"
 PKGS="kmod-wireguard wireguard-tools luci-proto-wireguard qrencode"
 DDNS_PKGS="ddns-scripts ddns-scripts-services luci-app-ddns ca-bundle"
 
-RC=0
 say()  { printf '%s\n' "$*"; }
 ok()   { printf '  [ ok ] %s\n' "$*"; }
 warn() { printf '  [warn] %s\n' "$*"; }
-fail() { printf '  [FAIL] %s\n' "$*"; RC=1; }
 hdr()  { printf '\n== %s\n' "$*"; }
 die()  { printf '  [FAIL] %s\n' "$*"; exit 1; }
 
@@ -48,11 +46,16 @@ VPN_PREFIX=${VPN_SUBNET#*/}
 # The PC validates this too, but install.sh is also usable by hand.
 is_ipv4() {
     _ipv4_v=$1
-    case "$_ipv4_v" in '' | *[!0-9.]*) return 1 ;; esac
+    case "$_ipv4_v" in '' | *[!0-9.]* | *.) return 1 ;; esac
     _ipv4_n=0
     _ipv4_ifs=$IFS; IFS=.
     for _ipv4_o in $_ipv4_v; do
-        [ -n "$_ipv4_o" ] && [ "$_ipv4_o" -le 255 ] || { IFS=$_ipv4_ifs; return 1; }
+        [ -n "$_ipv4_o" ] || { IFS=$_ipv4_ifs; return 1; }
+        # Reject leading zeros: ash arithmetic reads 010 as octal.
+        [ "${#_ipv4_o}" -le 3 ] || { IFS=$_ipv4_ifs; return 1; }
+        [ "$_ipv4_o" = 0 ] || [ "${_ipv4_o#0}" = "$_ipv4_o" ] \
+            || { IFS=$_ipv4_ifs; return 1; }
+        [ "$_ipv4_o" -le 255 ] || { IFS=$_ipv4_ifs; return 1; }
         _ipv4_n=$((_ipv4_n + 1))
     done
     IFS=$_ipv4_ifs
@@ -106,7 +109,10 @@ endpoint_host() {
 check_host() {
     hdr "Host"
     [ -f /etc/openwrt_release ] || die "this does not look like OpenWrt"
-    [ -f /tmp/dhcp.leases ] || die "no dnsmasq leases - run this on the MAIN router"
+    # A dumb AP has an empty /etc/config/dhcp. Checking the config, not a
+    # lease file, keeps a fresh main router with no clients from failing.
+    uci -q get dhcp.@dnsmasq[0] >/dev/null \
+        || die "no dnsmasq config - run this on the MAIN router"
     ok "$(uname -n)"
 }
 
@@ -208,6 +214,10 @@ seed_ddns() {
         ok "off (DUCKDNS_DOMAIN empty) - clients get the WAN IP as endpoint"
         return
     fi
+    case "$DUCKDNS_DOMAIN" in
+        -* | *- | *[!A-Za-z0-9-]*)
+            die "bad DUCKDNS_DOMAIN '$DUCKDNS_DOMAIN' (one subdomain: letters, digits, -)" ;;
+    esac
     [ -x /etc/init.d/ddns ] || { warn "ddns-scripts missing - re-run later"; return; }
     if uci -q get ddns.duckdns >/dev/null; then
         ok "exists - left as it is (edit it in LuCI: Services > Dynamic DNS)"
@@ -317,6 +327,7 @@ client_add() {
         done
         [ -n "$_ip" ] || die "no free client address left in $VPN_SUBNET"
     fi
+    is_ipv4 "$_ip" || die "$_ip is not an IPv4 address"
     # The server is $VPN_BASE.1/24; anything else has no route back through
     # the tunnel, and the client would look connected but reach nothing.
     case "$_ip" in
@@ -400,6 +411,7 @@ case "$1" in
         uninstall
         ;;
     client)
+        check_host
         case "$2" in
             add)    client_add "$3" "$4" ;;
             revoke) client_revoke "$3" ;;
@@ -414,4 +426,3 @@ case "$1" in
 esac
 
 say ""
-exit "$RC"

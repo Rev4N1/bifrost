@@ -35,10 +35,17 @@ require() {
 # before it reaches a router's networking or Wi-Fi config.
 is_ipv4() {
     local IFS=. _o
+    # A trailing dot splits into four fields; it is still not an address.
+    case "$1" in *.) return 1 ;; esac
+    # shellcheck disable=SC2086  # deliberate: split the address on IFS=.
     set -- $1
     [ "$#" -eq 4 ] || return 1
     for _o; do
         case "$_o" in '' | *[!0-9]*) return 1 ;; esac
+        # Reject leading zeros: $((010)) is octal, and 010.0.0.1 would
+        # silently become a different address in the subnet checks.
+        [ "${#_o}" -le 3 ] || return 1
+        [ "$_o" = 0 ] || [ "${_o#0}" = "$_o" ] || return 1
         [ "$_o" -le 255 ] || return 1
     done
 }
@@ -87,14 +94,28 @@ ip_in_subnet() {
 
 # check_wg - part 6 of bifrost.conf, before it reaches the router
 check_wg() {
-    require GW_IP ROOT_PASSWORD WG_PORT VPN_SUBNET CLIENT_DNS
+    require GW_IP NETMASK ROOT_PASSWORD WG_PORT VPN_SUBNET CLIENT_DNS
     is_ipv4 "$GW_IP" || die "GW_IP must be an IPv4 address"
+    is_netmask "$NETMASK" || die "NETMASK must be a contiguous IPv4 mask, /8 to /30"
     is_uint "$WG_PORT" && [ "$WG_PORT" -ge 1 ] && [ "$WG_PORT" -le 65535 ] \
         || die "WG_PORT must be 1-65535"
     case "$VPN_SUBNET" in
         *.0/24) is_ipv4 "${VPN_SUBNET%/*}" || die "VPN_SUBNET has no IPv4 address" ;;
         *) die "VPN_SUBNET must be a /24 starting at .0 (e.g. 10.7.0.0/24)" ;;
     esac
+    # A VPN subnet that overlaps the LAN would steal LAN routes: clients
+    # would reach the tunnel for addresses that are actually local. Check
+    # both directions: a /24 VPN can cover a LAN that is a smaller subnet.
+    if ip_in_subnet "${VPN_SUBNET%/*}" "$GW_IP" "$NETMASK" \
+        || ip_in_subnet "$GW_IP" "${VPN_SUBNET%/*}" 255.255.255.0; then
+        die "VPN_SUBNET $VPN_SUBNET overlaps the LAN ($GW_IP/$NETMASK)"
+    fi
+    if [ -n "${DUCKDNS_DOMAIN:-}" ]; then
+        require DUCKDNS_TOKEN
+        case "$DUCKDNS_DOMAIN" in
+            -* | *- | *[!A-Za-z0-9-]*) die "DUCKDNS_DOMAIN must be one subdomain (letters, digits, -)" ;;
+        esac
+    fi
     local _e _ip _rest _proto _port
     for _e in ${VPN_LAN_ACCESS:-}; do
         case "$_e" in
