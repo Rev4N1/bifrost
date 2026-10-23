@@ -233,7 +233,8 @@ check() {
     fi
     _z=$(wg_zone)
     [ -n "$_z" ] && ok "wg0 is in zone $(uci -q get "firewall.$_z.name")" || warn "wg0 is in no firewall zone"
-    [ "$(uci -q get firewall.wgvpn_in.dest_port)" = "$(uci -q get network.wg0.listen_port)" ] \
+    _rp=$(uci -q get firewall.wgvpn_in.dest_port)
+    [ -n "$_rp" ] && [ "$_rp" = "$(uci -q get network.wg0.listen_port)" ] \
         && ok "WAN rule matches the listen port" || warn "WAN rule and wg0 listen port differ"
 
     # Inbound WireGuard only works with a real public WAN address.
@@ -321,7 +322,8 @@ DNS = $CLIENT_DNS
 PublicKey = $(server_pub)
 PresharedKey = $_psk
 Endpoint = $_endpoint:$(uci -q get network.wg0.listen_port)
-AllowedIPs = 0.0.0.0/0, ::/0
+# IPv6 is off on this router, so only IPv4 goes through the tunnel.
+AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25
 EOF
     )

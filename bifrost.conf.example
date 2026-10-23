@@ -32,7 +32,7 @@ ROOT_PASSWORD="CHANGE_ME"
 WAN_DEVICE="eth1"           # the WAN port's name in OpenWrt (uci show network | grep wan)
 PPPOE_USER="CHANGE_ME"
 PPPOE_PASS="CHANGE_ME"
-DNS_LIST="9.9.9.11 149.112.112.11"   # upstream resolvers, space separated
+DNS_LIST="9.9.9.11 149.112.112.11"   # upstream resolvers, space separated; empty = the WAN's
 DHCP_DNS_OPTION=""          # DNS handed to your devices; empty = the router. e.g. "6,192.168.1.1,9.9.9.9"
 UPNP="0"                    # 1 = UPnP/NAT-PMP on (lets consoles and apps open ports)
 

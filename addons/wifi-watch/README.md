@@ -100,7 +100,8 @@ Log lines worth knowing:
 
 Everything is in part 5 of `bifrost.conf`. Run `./deploy.sh` to apply.
 
-People are `hostname-substring=name` pairs:
+People are `hostname-substring=name` pairs. Hostname matching ignores case;
+the first pair that matches wins:
 
 ```sh
 PEOPLE="Pixel-8=Alice iPhone-Bob=Bob"

@@ -6,9 +6,10 @@ main router, and an optional Telegram home/away bot, all deployed from your PC
 with one command. Every step is safe to re-run, so after a firmware flash you
 just run it again.
 
-- **Routers:** one SSID everywhere with 802.11r/k/v/w fast roaming, `usteer`
-  steering devices to the best AP, non-overlapping channels, lower 2.4 GHz
-  power, hardware NAT offload, packet steering, and optional UPnP.
+- **Routers:** one SSID everywhere with 802.11r fast roaming, 802.11k/v
+  steering and 802.11w protected management frames, `usteer` nudging devices
+  to the best AP, non-overlapping channels, lower 2.4 GHz power, hardware NAT
+  offload, packet steering, and optional UPnP.
 - **WireGuard:** a VPN server on the main router, kept reachable by DuckDNS.
   VPN clients get the internet plus only the LAN services you list. All of it
   is editable in LuCI.
@@ -51,9 +52,11 @@ function Write-RouterConf($Out, [string[]]$Vars, [string[]]$Extra = @()) {
     $lines = @(Get-Content bifrost.conf | Where-Object { $_ -match "^($($Vars -join '|'))=" }) + $Extra
     [IO.File]::WriteAllText((Join-Path $PWD $Out), ($lines -join "`n") + "`n")
 }
-$net   = 'SSID','WPA_PSK','COUNTRY','MOBILITY_DOMAIN','BW24','BW5','TXPOWER_24','MAIN_HOSTNAME','GW_IP','NETMASK','WAN_DEVICE','PPPOE_USER','PPPOE_PASS','MAIN_CH24','MAIN_CH5','DNS_LIST','DHCP_DNS_OPTION','UPNP','APS','ROOT_PASSWORD','ZONENAME','TIMEZONE','NTP_SERVER'
-$watch = 'BOT_TOKEN','CHAT_ID','PEOPLE','PEOPLE_MAC','POLL_INTERVAL','MISSES_TO_LEAVE','CONFIRM_ROUNDS','CONFIRM_GAP','ARPING_TRIES','INITIAL_SETTLE','AP_FAIL_GRACE'
-$wg    = 'WG_PORT','VPN_SUBNET','CLIENT_DNS','VPN_LAN_ACCESS','DUCKDNS_DOMAIN','DUCKDNS_TOKEN'
+$shared = 'SSID','WPA_PSK','COUNTRY','MOBILITY_DOMAIN','BW24','BW5','TXPOWER_24','GW_IP','NETMASK','ROOT_PASSWORD','ZONENAME','TIMEZONE','NTP_SERVER'
+$ap     = $shared + 'APS'
+$main   = $shared + @('WAN_DEVICE','PPPOE_USER','PPPOE_PASS','MAIN_HOSTNAME','MAIN_CH24','MAIN_CH5','DNS_LIST','DHCP_DNS_OPTION','UPNP')
+$watch  = 'BOT_TOKEN','CHAT_ID','PEOPLE','PEOPLE_MAC','POLL_INTERVAL','MISSES_TO_LEAVE','CONFIRM_ROUNDS','CONFIRM_GAP','ARPING_TRIES','INITIAL_SETTLE','AP_FAIL_GRACE'
+$wg     = 'WG_PORT','VPN_SUBNET','CLIENT_DNS','VPN_LAN_ACCESS','DUCKDNS_DOMAIN','DUCKDNS_TOKEN'
 ```
 
 By hand, SSH asks the router's root password each time (a factory-fresh router
@@ -87,7 +90,7 @@ named because it boots on the main router's address.
    By hand:
 
    ```powershell
-   Write-RouterConf setup/network.conf $net; ssh-keygen -R 192.168.1.1; $d = "/tmp/bifrost-setup-$(Get-Random)"; scp -O -r setup "root@192.168.1.1:$d"; ssh -t root@192.168.1.1 "sh $d/main-router.sh"
+   Write-RouterConf setup/network.conf $main; ssh-keygen -R 192.168.1.1; $d = "/tmp/bifrost-setup-$(Get-Random)"; scp -O -r setup "root@192.168.1.1:$d"; ssh -t root@192.168.1.1 "sh $d/main-router.sh"
    ```
 
 2. **Each AP.** A factory-fresh AP boots at 192.168.1.1, the same address as
@@ -102,8 +105,10 @@ named because it boots on the main router's address.
    `192.168.1.2`, `.3`, …): the PC keeps that address while the AP moves.
 
    It finds the AP at 192.168.1.1, configures it, and waits for its own IP (the
-   session freezes mid-run, that's fine). When it says it's waiting for
-   internet, plug it into the main LAN.
+   session freezes mid-run, that's fine). Plug it into the main LAN as soon as
+   it freezes: it waits up to two minutes for internet before installing the
+   roaming packages. On that first run its later output, including the wait
+   message, is in `/tmp/dumb-ap.log` on the AP, not on your PC.
 
    **Use `ap <name>` whenever the device at 192.168.1.1 is an AP.** Bare
    `./deploy.sh` treats a factory device there as the main router.
@@ -112,7 +117,7 @@ named because it boots on the main router's address.
    uses its IP from `APS`):
 
    ```powershell
-   Write-RouterConf setup/network.conf $net; ssh-keygen -R 192.168.1.1; $d = "/tmp/bifrost-setup-$(Get-Random)"; scp -O -r setup "root@192.168.1.1:$d"; ssh -t root@192.168.1.1 "sh $d/dumb-ap.sh <hostname>"
+   Write-RouterConf setup/network.conf $ap; ssh-keygen -R 192.168.1.1; $d = "/tmp/bifrost-setup-$(Get-Random)"; scp -O -r setup "root@192.168.1.1:$d"; ssh -t root@192.168.1.1 "sh $d/dumb-ap.sh <hostname>"
    ```
 
 3. **Once every AP is up**, run the same command again. This time it reaches
@@ -224,7 +229,9 @@ addons/
   `192.168.1.1`) drops the SSH session mid-run. The script ignores the hangup
   and keeps its later output in `/tmp/main-router.log` or `/tmp/dumb-ap.log`
   on that router; `deploy.sh` waits for the new address. If a move skipped the
-  addons, the next run applies them.
+  addons, the next run applies them. A PC on the old subnet cannot follow a
+  move to a different one, so the first run is simplest with
+  `GW_IP=192.168.1.1` and AP IPs in `192.168.1.x`.
 - **Host keys aren't pinned.** Every flash gives a router a new SSH host key,
   so pinning would break every run. `deploy.sh` only talks to your own devices
   on your LAN.

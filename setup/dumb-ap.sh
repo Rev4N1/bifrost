@@ -53,11 +53,18 @@ ok "LAN $AP_IP, gateway/DNS $GW_IP"
 
 # ---- No DHCP, RA, DNS or firewall: the main router does all that --
 hdr "Services"
-: > /etc/config/dhcp
+# Stop dnsmasq *before* emptying /etc/config/dhcp: its stop handler is
+# what points /tmp/resolv.conf at netifd's interface DNS (network.lan.dns
+# above). With an empty config it finds no dnsmasq section and leaves
+# /tmp/resolv.conf on the now-dead 127.0.0.1, so the AP could not resolve
+# the package repo below.
 for S in firewall dnsmasq odhcpd; do
     /etc/init.d/$S stop    >/dev/null 2>&1
     /etc/init.d/$S disable >/dev/null 2>&1
 done
+: > /etc/config/dhcp
+# Belt and braces: netifd writes this file from the interface's DNS.
+ln -sf /tmp/resolv.conf.d/resolv.conf.auto /tmp/resolv.conf
 ok "firewall, dnsmasq, odhcpd disabled"
 
 # The IP change below drops the SSH session. Keep stdout/stderr on a file

@@ -30,9 +30,14 @@ unset _c
 FACTORY_IP=192.168.1.1
 
 # What each device gets from bifrost.conf. Everything else stays on the PC.
-NET_VARS="SSID WPA_PSK COUNTRY MOBILITY_DOMAIN BW24 BW5 TXPOWER_24 MAIN_HOSTNAME GW_IP NETMASK
-          WAN_DEVICE PPPOE_USER PPPOE_PASS MAIN_CH24 MAIN_CH5 DNS_LIST DHCP_DNS_OPTION UPNP APS
-          ROOT_PASSWORD ZONENAME TIMEZONE NTP_SERVER"
+# An AP needs the shared Wi-Fi/clock settings and the APS list; it does not
+# need the PPPoE login, the main router's WAN device or channels, the DNS
+# list, or UPnP, so those never reach it.
+SHARED_VARS="SSID WPA_PSK COUNTRY MOBILITY_DOMAIN BW24 BW5 TXPOWER_24 GW_IP NETMASK
+             ROOT_PASSWORD ZONENAME TIMEZONE NTP_SERVER"
+AP_VARS="$SHARED_VARS APS"
+MAIN_VARS="$SHARED_VARS WAN_DEVICE PPPOE_USER PPPOE_PASS MAIN_HOSTNAME MAIN_CH24 MAIN_CH5
+           DNS_LIST DHCP_DNS_OPTION UPNP"
 WATCH_VARS="BOT_TOKEN CHAT_ID PEOPLE PEOPLE_MAC AP_IPS POLL_INTERVAL MISSES_TO_LEAVE
             CONFIRM_ROUNDS CONFIRM_GAP ARPING_TRIES INITIAL_SETTLE AP_FAIL_GRACE"
 WG_VARS="WG_PORT VPN_SUBNET CLIENT_DNS VPN_LAN_ACCESS DUCKDNS_DOMAIN DUCKDNS_TOKEN"
@@ -151,10 +156,14 @@ require_net() {
     case "${BW5:-}" in 20 | 40 | 80 | 160) ;; *) die "BW5 must be 20, 40, 80 or 160" ;; esac
     [ -z "${TXPOWER_24:-}" ] || is_uint "$TXPOWER_24" || die "TXPOWER_24 must be a number or empty"
     case "${UPNP:-0}" in 0 | 1) ;; *) die "UPNP must be 0 or 1" ;; esac
+    local _d _e _n _ip _ach24 _ach5 _names=" " _ips=" "
+    # Empty DNS_LIST is allowed: dnsmasq then follows the WAN's resolvers.
+    for _d in ${DNS_LIST:-}; do
+        is_ipv4 "$_d" || die "DNS_LIST entry '$_d' is not an IPv4 address"
+    done
 
     # APS entries are name,ip,ch24,ch5. A typo here can move an AP off the
     # LAN or put two APs on one channel, so check it before touching a box.
-    local _e _n _ip _ach24 _ach5 _names=" " _ips=" "
     for _e in $APS; do
         IFS=, read -r _n _ip _ach24 _ach5 <<< "$_e"
         [ -n "$_n" ] && [ -n "$_ip" ] && [ -n "$_ach24" ] && [ -n "$_ach5" ] \
@@ -200,7 +209,7 @@ cmd_main() {
         [ "$h" = "$MAIN_HOSTNAME" ] || [ "$h" = OpenWrt ] \
             || warn "$GW_IP answered as '$h', not $MAIN_HOSTNAME - continuing"
         say "main router $GW_IP"
-        run_step "$GW_IP" "$(stage setup network.conf "$NET_VARS")" \
+        run_step "$GW_IP" "$(stage setup network.conf "$MAIN_VARS")" \
             "sh @DIR@/main-router.sh" "$GW_IP"
         return 0
     fi
@@ -212,7 +221,8 @@ cmd_main() {
         h=$(hostname_at "$FACTORY_IP")
         if [ "$h" = OpenWrt ] || [ "$h" = "$MAIN_HOSTNAME" ]; then
             say "main router at $FACTORY_IP"
-            run_step "$FACTORY_IP" "$(stage setup network.conf "$NET_VARS")" \
+            warn "it moves to $GW_IP; this PC must be able to reach that subnet afterwards"
+            run_step "$FACTORY_IP" "$(stage setup network.conf "$MAIN_VARS")" \
                 "sh @DIR@/main-router.sh" "$GW_IP"
             SSH_OPTS=("${saved_opts[@]}")
             return 0
@@ -240,7 +250,7 @@ cmd_ap() {
         [ "$h" = "$name" ] || [ "$h" = OpenWrt ] \
             || warn "$ip answered as '$h', not $name - continuing"
         say "AP $name ($ip)"
-        run_step "$ip" "$(stage setup network.conf "$NET_VARS")" \
+        run_step "$ip" "$(stage setup network.conf "$AP_VARS")" \
             "sh @DIR@/dumb-ap.sh $name" "$ip"
         return 0
     fi
@@ -255,10 +265,15 @@ cmd_ap() {
     h=$(hostname_at "$FACTORY_IP")
     if [ "$h" = OpenWrt ] || [ "$h" = "$name" ]; then
         say "AP $name is at $FACTORY_IP (factory-fresh or mid-setup)"
+        case "$ip" in
+            192.168.1.*) ;;
+            *) warn "a factory AP moves to $ip; a PC on 192.168.1.x will lose it - use a 192.168.1.x AP_IP for the first run" ;;
+        esac
         echo "    Only your PC should be plugged into it. It moves to $ip mid-run"
-        echo "    (the session freezes, that's fine). When it says it's waiting for"
-        echo "    internet, plug it into the main LAN."
-        run_step "$FACTORY_IP" "$(stage setup network.conf "$NET_VARS")" \
+        echo "    (the session freezes, that's fine). Plug it into the main LAN"
+        echo "    then; it waits up to 120s for internet (log: /tmp/dumb-ap.log"
+        echo "    on the AP)."
+        run_step "$FACTORY_IP" "$(stage setup network.conf "$AP_VARS")" \
             "sh @DIR@/dumb-ap.sh $name" "$ip"
         SSH_OPTS=("${saved_opts[@]}")
         return 0

@@ -51,7 +51,7 @@ is_uint() { case "$1" in '' | *[!0-9]*) return 1 ;; esac; }
 
 # check_wg - part 6 of bifrost.conf, before it reaches the router
 check_wg() {
-    require GW_IP WG_PORT VPN_SUBNET CLIENT_DNS
+    require GW_IP ROOT_PASSWORD WG_PORT VPN_SUBNET CLIENT_DNS
     is_ipv4 "$GW_IP" || die "GW_IP must be an IPv4 address"
     is_uint "$WG_PORT" && [ "$WG_PORT" -ge 1 ] && [ "$WG_PORT" -le 65535 ] \
         || die "WG_PORT must be 1-65535"
@@ -59,6 +59,21 @@ check_wg() {
         *.0/24) is_ipv4 "${VPN_SUBNET%/*}" || die "VPN_SUBNET has no IPv4 address" ;;
         *) die "VPN_SUBNET must be a /24 starting at .0 (e.g. 10.7.0.0/24)" ;;
     esac
+    local _e _ip _rest _proto _port
+    for _e in ${VPN_LAN_ACCESS:-}; do
+        case "$_e" in
+            *:*:*) ;;
+            *) die "VPN_LAN_ACCESS entry '$_e' must be ip:tcp|udp:port" ;;
+        esac
+        _ip=${_e%%:*}; _rest=${_e#*:}; _proto=${_rest%%:*}; _port=${_rest#*:}
+        is_ipv4 "$_ip" || die "VPN_LAN_ACCESS IP '$_ip' is not an IPv4 address"
+        case "$_proto" in
+            tcp | udp) ;;
+            *) die "VPN_LAN_ACCESS protocol '$_proto' must be tcp or udp" ;;
+        esac
+        is_uint "$_port" && [ "$_port" -ge 1 ] && [ "$_port" -le 65535 ] \
+            || die "VPN_LAN_ACCESS port '$_port' must be 1-65535"
+    done
 }
 
 # sq <value> - single-quoted for any POSIX shell (the routers run ash)

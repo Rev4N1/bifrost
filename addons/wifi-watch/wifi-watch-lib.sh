@@ -45,11 +45,17 @@ ww_load_conf() {
 }
 
 # hostname -> person, from PEOPLE="substring=name ..."
+# DHCP hostnames are case-insensitive in practice (a phone may send
+# "Pixel-8" or "pixel-8"), so compare both sides lowercased. An empty
+# pattern would match every lease, so skip it.
 match_person() {
     [ -n "$1" ] && [ "$1" != "*" ] || return 0
+    _host=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
     for _pair in $PEOPLE; do
-        case "$1" in
-            *"${_pair%%=*}"*) echo "${_pair#*=}"; return 0 ;;
+        _pat=$(printf '%s' "${_pair%%=*}" | tr '[:upper:]' '[:lower:]')
+        [ -n "$_pat" ] || continue
+        case "$_host" in
+            *"$_pat"*) printf '%s\n' "${_pair#*=}"; return 0 ;;
         esac
     done
 }

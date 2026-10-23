@@ -32,6 +32,7 @@ uci -q delete network.wan6
 
 uci set network.wan=interface
 uci set network.wan.device="$WAN_DEVICE"
+uci -q delete network.wan.ifname
 uci set network.wan.proto='pppoe'
 uci set network.wan.username="$PPPOE_USER"
 uci set network.wan.password="$PPPOE_PASS"
@@ -40,6 +41,9 @@ uci set network.lan.proto='static'
 _OLD_LAN=$(uci -q get network.lan.ipaddr)
 uci set network.lan.ipaddr="$GW_IP"
 uci set network.lan.netmask="$NETMASK"
+# A box that used to be an AP may still point its LAN at a gateway/DNS.
+uci -q delete network.lan.gateway
+uci -q delete network.lan.dns
 uci -q delete network.lan.ip6assign
 uci set network.lan.delegate='0'
 uci -q delete network.globals.ula_prefix
@@ -62,7 +66,7 @@ uci -q delete dhcp.lan.ndp
 uci -q delete dhcp.lan.dhcp_option
 [ -n "$DHCP_DNS_OPTION" ] && uci add_list dhcp.lan.dhcp_option="$DHCP_DNS_OPTION"
 uci commit dhcp
-ok "upstream DNS: $DNS_LIST; clients get ${DHCP_DNS_OPTION:-the router}"
+ok "upstream DNS: ${DNS_LIST:-the WAN DNS}; clients get ${DHCP_DNS_OPTION:-the router}"
 
 # ---- NAT offload: established flows bypass the CPU ----------------
 # In hardware where the SoC supports it; fw4 falls back to software.

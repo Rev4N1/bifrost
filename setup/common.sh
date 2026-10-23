@@ -96,22 +96,26 @@ sync_time() {
 }
 
 # Full wpad is needed for 802.11k/v (802.11r alone works with -basic).
-# Never leaves the router without a wpad: if installing the full one
-# fails, the basic one is put back.
+# The installed variant may be basic-mbedtls, basic-wolfssl or another
+# build, so find whatever wpad package is there. Never leaves the router
+# without one: if installing the full one fails, the old one is put back.
 install_full_wpad() {
     hdr "wpad"
     if apk list --installed 2>/dev/null | grep -q '^wpad-mbedtls-[0-9]'; then
         ok "wpad-mbedtls already installed"
         return
     fi
-    apk update >/dev/null 2>&1 || { warn "apk update failed, keeping wpad-basic"; return; }
-    apk del wpad-basic-mbedtls >/dev/null 2>&1
+    _wpad=$(apk list --installed 2>/dev/null \
+        | sed -n 's/^\(wpad-[a-z0-9-]*\)-[0-9].*/\1/p' | head -n1)
+    [ -n "$_wpad" ] || _wpad=wpad-basic-mbedtls
+    apk update >/dev/null 2>&1 || { warn "apk update failed, keeping $_wpad"; return; }
+    apk del "$_wpad" >/dev/null 2>&1
     if apk add wpad-mbedtls >/dev/null 2>&1; then
         NEED_APPLY=1
-        ok "wpad-mbedtls installed"
+        ok "wpad-mbedtls installed (replaced $_wpad)"
     else
-        apk add wpad-basic-mbedtls >/dev/null 2>&1
-        warn "wpad-mbedtls install failed, restored wpad-basic-mbedtls (no 802.11k/v)"
+        apk add "$_wpad" >/dev/null 2>&1
+        warn "wpad-mbedtls install failed, restored $_wpad (no 802.11k/v)"
     fi
 }
 
