@@ -87,7 +87,7 @@ named because it boots on the main router's address.
    By hand:
 
    ```powershell
-   Write-RouterConf setup/network.conf $net; ssh-keygen -R 192.168.1.1; scp -O -r setup root@192.168.1.1:/tmp/bifrost-setup; ssh -t root@192.168.1.1 "sh /tmp/bifrost-setup/main-router.sh"
+   Write-RouterConf setup/network.conf $net; ssh-keygen -R 192.168.1.1; $d = "/tmp/bifrost-setup-$(Get-Random)"; scp -O -r setup "root@192.168.1.1:$d"; ssh -t root@192.168.1.1 "sh $d/main-router.sh"
    ```
 
 2. **Each AP.** A factory-fresh AP boots at 192.168.1.1, the same address as
@@ -112,7 +112,7 @@ named because it boots on the main router's address.
    uses its IP from `APS`):
 
    ```powershell
-   Write-RouterConf setup/network.conf $net; ssh-keygen -R 192.168.1.1; scp -O -r setup root@192.168.1.1:/tmp/bifrost-setup; ssh -t root@192.168.1.1 "sh /tmp/bifrost-setup/dumb-ap.sh <hostname>"
+   Write-RouterConf setup/network.conf $net; ssh-keygen -R 192.168.1.1; $d = "/tmp/bifrost-setup-$(Get-Random)"; scp -O -r setup "root@192.168.1.1:$d"; ssh -t root@192.168.1.1 "sh $d/dumb-ap.sh <hostname>"
    ```
 
 3. **Once every AP is up**, run the same command again. This time it reaches
@@ -211,10 +211,9 @@ addons/
   token never reaches the APs, for example, and the router setup deletes its
   copy (with the root and PPPoE passwords) as soon as it finishes.
 - **Passwords, no SSH keys.** `deploy.sh` tries `ROOT_PASSWORD_CURRENT` (if
-  set), then `ROOT_PASSWORD`, with `sshpass`. If neither logs in, SSH asks
-  (once per step on Linux, where the connection is reused for a minute). A
-  factory-fresh router has no password, so the configured one fails and SSH
-  logs in empty (or asks nothing). After the first deploy, set
+  set), then `ROOT_PASSWORD`, then an empty password (what a factory image
+  has), with `sshpass`. If none logs in, SSH asks (once per step on Linux,
+  where the connection is reused for a minute). After the first deploy, set
   `ROOT_PASSWORD_CURRENT` to `ROOT_PASSWORD` for non-interactive runs.
 - **Separate pieces.** `setup/` never references an addon, and the
   addons never touch what it owns, so each one runs on its own, in any order.

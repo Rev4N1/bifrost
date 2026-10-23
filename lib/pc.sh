@@ -89,7 +89,9 @@ fi
 # ROOT_PASSWORD is the password to SET on the routers. On a factory image
 # the current password is empty, so using the target one for the first
 # login would fail. Probe with ROOT_PASSWORD_CURRENT (if set), then with
-# ROOT_PASSWORD, and otherwise let ssh ask (or accept the empty password).
+# ROOT_PASSWORD, then with an empty password (a factory image, which
+# OpenWrt's dropbear accepts until a root password is set), and
+# otherwise let ssh ask.
 declare -A PW_MODES=() PW_PASSES=()
 PW_MODE=""
 PW_PASS=""
@@ -111,6 +113,13 @@ pw_select() {
                 break
             fi
         done
+        # A factory image has no root password at all, and dropbear allows
+        # an empty one until passwd runs. Try that before asking.
+        if [ "$PW_MODE" = prompt ] \
+            && SSHPASS='' sshpass -e ssh "${SSH_OPTS[@]}" "root@$_h" true 2>/dev/null; then
+            PW_MODE=sshpass
+            PW_PASS=""
+        fi
     fi
     PW_MODES[$_h]=$PW_MODE
     PW_PASSES[$_h]=$PW_PASS

@@ -63,7 +63,7 @@ ok "firewall, dnsmasq, odhcpd disabled"
 # The IP change below drops the SSH session. Keep stdout/stderr on a file
 # from here on, so later commands don't write to a dead pipe.
 [ "$AP_IP" = "$_OLD_LAN" ] || exec >/tmp/dumb-ap.log 2>&1
-service network reload >/dev/null 2>&1 || /etc/init.d/network restart
+/etc/init.d/network reload >/dev/null 2>&1 || /etc/init.d/network restart
 sleep 5
 
 if wait_for_internet; then

@@ -23,9 +23,9 @@ TIMEZONE="CHANGE_ME"        # POSIX TZ for it, e.g. CET-1CEST,M3.5.0,M10.5.0/3
 NTP_SERVER="pool.ntp.org"
 
 # The root password to SET on every router. deploy.sh also tries it as
-# the current one; if that fails it asks (or logs in empty on a factory
-# image). Set ROOT_PASSWORD_CURRENT to the router's current password to
-# let sshpass type it on later runs (leave empty on a factory router).
+# the current one, then an empty password (factory image), then asks.
+# Set ROOT_PASSWORD_CURRENT to the router's current password to let
+# sshpass type it on later runs (leave empty on a factory router).
 ROOT_PASSWORD="CHANGE_ME"
 ROOT_PASSWORD_CURRENT=""
 

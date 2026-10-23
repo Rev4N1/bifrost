@@ -213,7 +213,7 @@ seed_ddns() {
 
 apply() {
     hdr "Apply"
-    service network reload >/dev/null 2>&1
+    /etc/init.d/network reload >/dev/null 2>&1
     /etc/init.d/firewall reload >/dev/null 2>&1
     sleep 3
     ifup wg0 >/dev/null 2>&1

@@ -13,6 +13,17 @@
 
 . "$(dirname "$0")/common.sh"
 
+# WAN_DEVICE must be this box's WAN port. On the first run the factory
+# config still names it, and a wrong name here leaves the router without
+# internet, so stop before changing anything.
+_WAN_DEV=$(uci -q get network.wan.device)
+_WAN_PROTO=$(uci -q get network.wan.proto)
+if [ "$_WAN_PROTO" != pppoe ] && [ -n "$_WAN_DEV" ] && [ "$_WAN_DEV" != "$WAN_DEVICE" ]; then
+    die "factory WAN is '$_WAN_DEV', but WAN_DEVICE is '$WAN_DEVICE' - fix WAN_DEVICE in bifrost.conf"
+fi
+[ -e "/sys/class/net/$WAN_DEVICE" ] \
+    || die "WAN_DEVICE '$WAN_DEVICE' is not a device on this router (have: $(ls /sys/class/net | tr '\n' ' '))"
+
 setup_system "$MAIN_HOSTNAME"
 
 # ---- Network: WAN PPPoE + static LAN, no IPv6 ---------------------
@@ -65,7 +76,7 @@ ok "flow offloading (hw) enabled"
 # The LAN IP change below drops the SSH session. Keep stdout/stderr on a
 # file from here on, so later commands don't write to a dead pipe.
 [ "$GW_IP" = "$_OLD_LAN" ] || exec >/tmp/main-router.log 2>&1
-service network reload >/dev/null 2>&1 || /etc/init.d/network restart
+/etc/init.d/network reload >/dev/null 2>&1 || /etc/init.d/network restart
 /etc/init.d/dnsmasq restart >/dev/null 2>&1
 sleep 5
 
