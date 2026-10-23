@@ -37,9 +37,6 @@ grep -qE "=[\"']CHANGE_ME[\"']" "$SETUP_DIR/network.conf" && die "network.conf s
 # What uci looked like before this run. finish() reboots only when it
 # differs, so re-running a setup script does not drop Wi-Fi for nothing.
 _BEFORE=$(uci export 2>/dev/null | md5sum)
-# Set when a package was installed or replaced but the config did not
-# change (wpad needs a Wi-Fi reload, not a reboot).
-NEED_APPLY=0
 
 # ---- system --------------------------------------------------------
 
@@ -104,30 +101,6 @@ sync_time() {
     fi
 }
 
-# Full wpad is needed for 802.11k/v (802.11r alone works with -basic).
-# The installed variant may be basic-mbedtls, basic-wolfssl or another
-# build, so find whatever wpad package is there. Never leaves the router
-# without one: if installing the full one fails, the old one is put back.
-install_full_wpad() {
-    hdr "wpad"
-    if apk list --installed 2>/dev/null | grep -q '^wpad-mbedtls-[0-9]'; then
-        ok "wpad-mbedtls already installed"
-        return
-    fi
-    _wpad=$(apk list --installed 2>/dev/null \
-        | sed -n 's/^\(wpad-[a-z0-9-]*\)-[0-9].*/\1/p' | head -n1)
-    [ -n "$_wpad" ] || _wpad=wpad-basic-mbedtls
-    apk update >/dev/null 2>&1 || { warn "apk update failed, keeping $_wpad"; return; }
-    apk del "$_wpad" >/dev/null 2>&1
-    if apk add wpad-mbedtls >/dev/null 2>&1; then
-        NEED_APPLY=1
-        ok "wpad-mbedtls installed (replaced $_wpad)"
-    else
-        apk add "$_wpad" >/dev/null 2>&1
-        warn "wpad-mbedtls install failed, restored $_wpad (no 802.11k/v)"
-    fi
-}
-
 # usteer: band/AP steering daemon. Every AP runs it; they find each
 # other by broadcast on the LAN and nudge clients (via 802.11k/v) off a
 # weak AP onto a better one. Complements 802.11r, which only makes the
@@ -143,6 +116,8 @@ install_usteer() {
         ok "usteer already installed"
         return
     fi
+    # A fresh router has no package index yet.
+    apk update >/dev/null 2>&1
     apk add usteer >/dev/null 2>&1 || { warn "usteer install failed"; return; }
     /etc/init.d/usteer enable >/dev/null 2>&1
     # Start it now: nothing else in this run will (the config may be
@@ -230,8 +205,8 @@ setup_wireless() {
         uci set "wireless.$_if.ft_psk_generate_local=1"
 
         # 802.11k/v: neighbour reports and BSS transition, so clients
-        # roam to the nearest AP instead of clinging to a far one.
-        # Ignored by wpad-basic.
+        # roam to the nearest AP instead of clinging to a far one. They
+        # need the full wpad-mbedtls, which 25.12 ships by default.
         uci set "wireless.$_if.ieee80211k=1"
         uci set "wireless.$_if.bss_transition=1"
 
@@ -248,12 +223,6 @@ finish() {
     hdr "Done"
     _after=$(uci export 2>/dev/null | md5sum)
     if [ "$_after" = "$_BEFORE" ]; then
-        if [ "$NEED_APPLY" = 1 ]; then
-            # A package was swapped (wpad) but the config is already right:
-            # restart Wi-Fi once so the new binary is actually in use.
-            say "  packages changed - reloading Wi-Fi"
-            wifi reload >/dev/null 2>&1 || warn "wifi reload failed"
-        fi
         say "  no config change - not rebooting"
         exit 0
     fi

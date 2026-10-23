@@ -4,3 +4,5 @@ bifrost.conf
 setup/network.conf
 addons/wifi-watch/wifi-watch.conf
 addons/wireguard/wireguard.conf
+# Command output saved while testing - never commit it
+*.txt

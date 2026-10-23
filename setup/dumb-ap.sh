@@ -89,7 +89,6 @@ sleep 5
 
 if wait_for_internet; then
     sync_time
-    install_full_wpad
     install_usteer
 fi
 
