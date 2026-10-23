@@ -212,7 +212,8 @@ pw_select() {
     PW_MODE=prompt
     PW_PASS=""
     for _p in "$ROOT_PASSWORD" ""; do
-        if with_pw "$_p" ssh -o NumberOfPasswordPrompts=1 "${SSH_OPTS[@]}" "root@$_h" true 2>/dev/null; then
+        # -n: the probe must not eat stdin meant for the real command.
+        if with_pw "$_p" ssh -n -o NumberOfPasswordPrompts=1 "${SSH_OPTS[@]}" "root@$_h" true 2>/dev/null; then
             PW_MODE=askpass
             PW_PASS=$_p
             break
