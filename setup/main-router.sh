@@ -32,7 +32,6 @@ uci -q delete network.wan6
 
 uci set network.wan=interface
 uci set network.wan.device="$WAN_DEVICE"
-uci -q delete network.wan.ifname
 uci set network.wan.proto='pppoe'
 uci set network.wan.username="$PPPOE_USER"
 uci set network.wan.password="$PPPOE_PASS"
@@ -41,9 +40,6 @@ uci set network.lan.proto='static'
 _OLD_LAN=$(uci -q get network.lan.ipaddr)
 uci set network.lan.ipaddr="$GW_IP"
 uci set network.lan.netmask="$NETMASK"
-# A box that used to be an AP may still point its LAN at a gateway/DNS.
-uci -q delete network.lan.gateway
-uci -q delete network.lan.dns
 uci -q delete network.lan.ip6assign
 uci set network.lan.delegate='0'
 uci -q delete network.globals.ula_prefix

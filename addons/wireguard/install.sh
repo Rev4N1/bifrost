@@ -322,8 +322,9 @@ DNS = $CLIENT_DNS
 PublicKey = $(server_pub)
 PresharedKey = $_psk
 Endpoint = $_endpoint:$(uci -q get network.wg0.listen_port)
-# IPv6 is off on this router, so only IPv4 goes through the tunnel.
-AllowedIPs = 0.0.0.0/0
+# ::/0 too, though IPv6 is off here: on a network with IPv6, the client's
+# IPv6 then goes into the tunnel and nowhere, instead of leaking outside.
+AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 25
 EOF
     )
