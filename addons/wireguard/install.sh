@@ -244,11 +244,22 @@ seed_ddns() {
 
 apply() {
     hdr "Apply"
-    /etc/init.d/network reload >/dev/null 2>&1
+    # netifd learns protocol handlers only when it starts: right after
+    # kmod-wireguard/wireguard-tools are installed (first run, or after a
+    # flash) it doesn't know "wireguard", and a reload leaves wg0 with no
+    # protocol and no device. Restart it then (a few seconds' outage);
+    # otherwise a reload is enough.
+    if ubus call network get_proto_handlers 2>/dev/null | grep -q '"wireguard"'; then
+        /etc/init.d/network reload >/dev/null 2>&1
+        ok "network reloaded"
+    else
+        /etc/init.d/network restart >/dev/null 2>&1
+        ok "network restarted (netifd had to learn the wireguard protocol)"
+    fi
     /etc/init.d/firewall reload >/dev/null 2>&1
     sleep 3
     ifup wg0 >/dev/null 2>&1
-    ok "network and firewall reloaded"
+    ok "firewall reloaded"
 }
 
 check() {
