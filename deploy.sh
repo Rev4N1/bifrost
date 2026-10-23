@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ========================================================
 # deploy.sh - the one command you run on the PC.
-# Linux (bash); README.md also shows every step by hand.
+# Linux, or Git Bash on Windows (Git for Windows).
 # Settings: bifrost.conf.
 #
 #   ./deploy.sh              main router, every AP, then the addons in use

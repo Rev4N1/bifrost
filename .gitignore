@@ -1,8 +1,4 @@
 # Every setting and secret; bifrost.conf.example is the committed template
 bifrost.conf
-# Per-router configs, written from bifrost.conf when deploying by hand
-setup/network.conf
-addons/wifi-watch/wifi-watch.conf
-addons/wireguard/wireguard.conf
 # Command output saved while testing - never commit it
 *.txt

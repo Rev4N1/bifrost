@@ -19,10 +19,9 @@ just run it again.
 
 - **Routers:** OpenWrt 25.12. One main router doing PPPoE, plus any number of
   dumb APs cabled to it.
-- **PC:** Linux with `bash`, `ssh` and `scp`, for `deploy.sh`. `sshpass` is
-  recommended so it types the routers' password for you
-  (`sudo dnf install sshpass`). Every step also shows how to do it by hand in
-  PowerShell, with the OpenSSH client (`ssh`, `scp`).
+- **PC:** Linux, or Windows with [Git for Windows](https://git-scm.com/download/win)
+  (run everything below in **Git Bash**). Both come with what `deploy.sh`
+  needs: `bash`, and OpenSSH 8.4 or newer (`ssh -V`). Nothing else to install.
 
 ## 2. Configure
 
@@ -40,29 +39,6 @@ as `hostname,ip,ch24,ch5`.
 `bifrost.conf` is git-ignored and holds every password, so keep a backup
 somewhere safe, like a password manager or an encrypted USB stick. It's the
 only file you need to rebuild everything.
-
-**By hand,** each step does what `deploy.sh` does: write a small config with
-only that router's part of `bifrost.conf`, copy the folder to the router's
-`/tmp`, and run the script there (each block uses its own folder name, so
-a second run never mixes with the first). First, once per PowerShell window, in the
-repo folder, define the config writer and each step's settings:
-
-```powershell
-function Write-RouterConf($Out, [string[]]$Vars, [string[]]$Extra = @()) {
-    $lines = @(Get-Content bifrost.conf | Where-Object { $_ -match "^($($Vars -join '|'))=" }) + $Extra
-    [IO.File]::WriteAllText((Join-Path $PWD $Out), ($lines -join "`n") + "`n")
-}
-$shared = 'SSID','WPA_PSK','COUNTRY','MOBILITY_DOMAIN','BW24','BW5','TXPOWER_24','GW_IP','NETMASK','ROOT_PASSWORD','ZONENAME','TIMEZONE','NTP_SERVER'
-$ap     = $shared + 'APS'
-$main   = $shared + @('WAN_DEVICE','PPPOE_USER','PPPOE_PASS','MAIN_HOSTNAME','MAIN_CH24','MAIN_CH5','DNS_LIST','DHCP_DNS_OPTION','UPNP')
-$watch  = 'BOT_TOKEN','CHAT_ID','PEOPLE','PEOPLE_MAC','POLL_INTERVAL','MISSES_TO_LEAVE','CONFIRM_ROUNDS','CONFIRM_GAP','ARPING_TRIES','INITIAL_SETTLE','AP_FAIL_GRACE'
-$wg     = 'WG_PORT','VPN_SUBNET','CLIENT_DNS','VPN_LAN_ACCESS','DUCKDNS_DOMAIN','DUCKDNS_TOKEN'
-```
-
-By hand, SSH asks the router's root password each time (a factory-fresh router
-has none). Every flash gives a router a new host key: the commands clear the
-old one with `ssh-keygen -R`, then answer `yes` when SSH asks about the new
-one.
 
 ## 3. The network
 
@@ -89,12 +65,6 @@ named because it boots on the main router's address.
    If `GW_IP` is not the factory `192.168.1.1`, this first run moves the main
    router and reboots it; run the command again at the new address to finish.
 
-   By hand:
-
-   ```powershell
-   Write-RouterConf setup/network.conf $main; ssh-keygen -R 192.168.1.1; $d = "/tmp/bifrost-setup-$(Get-Random)"; scp -O -r setup "root@192.168.1.1:$d"; ssh -t root@192.168.1.1 "sh $d/main-router.sh"
-   ```
-
 2. **Each AP.** A factory-fresh AP boots at 192.168.1.1, the same address as
    the main router, so plug **only your PC** into it and name it:
 
@@ -114,13 +84,6 @@ named because it boots on the main router's address.
    **Use `ap <name>` whenever the device at 192.168.1.1 is an AP.** Bare
    `./deploy.sh` treats a factory device there as the main router.
 
-   By hand (a factory-fresh AP at 192.168.1.1; an AP that's already set up
-   uses its IP from `APS`):
-
-   ```powershell
-   Write-RouterConf setup/network.conf $ap; ssh-keygen -R 192.168.1.1; $d = "/tmp/bifrost-setup-$(Get-Random)"; scp -O -r setup "root@192.168.1.1:$d"; ssh -t root@192.168.1.1 "sh $d/dumb-ap.sh <hostname>"
-   ```
-
 3. **Once every AP is up and plugged into the main LAN**, run the same command
    again. This time it reaches all of them, finishes their package and Wi-Fi
    setup, and applies the addons:
@@ -134,16 +97,7 @@ named because it boots on the main router's address.
    a re-run is just maintenance.
 
    The Telegram bot is applied when `BOT_TOKEN` is set; WireGuard when
-   `WG_PORT` is set. By hand (it also needs the APs' IPs, and asks each AP's
-   root password once):
-
-   ```powershell
-   $aps = (Select-String -Path bifrost.conf -Pattern '^APS="([^"]*)"').Matches[0].Groups[1].Value; $apIps = ($aps -split '\s+' | Where-Object { $_ } | ForEach-Object { ($_ -split ',')[1] }) -join ' '; Write-RouterConf addons/wifi-watch/wifi-watch.conf $watch "AP_IPS=""$apIps"""; $d = "/tmp/bifrost-wifi-watch-$(Get-Random)"; scp -O -r addons/wifi-watch "root@192.168.1.1:$d"; ssh -t root@192.168.1.1 "sh $d/install.sh"
-   ```
-
-   ```powershell
-   Write-RouterConf addons/wireguard/wireguard.conf $wg; $d = "/tmp/bifrost-wireguard-$(Get-Random)"; scp -O -r addons/wireguard "root@192.168.1.1:$d"; ssh -t root@192.168.1.1 "sh $d/install.sh"
-   ```
+   `WG_PORT` is set.
 
 From then on, after a flash or a config change, it is always the same command:
 
@@ -160,20 +114,9 @@ one peer at a time from the PC:
 ./addons/wireguard/client.sh revoke <name>
 ```
 
-`add` saves `~/wg-<name>.conf` (delete it once imported). By hand:
-
-```powershell
-Write-RouterConf addons/wireguard/wireguard.conf $wg; $d = "/tmp/bifrost-wireguard-$(Get-Random)"; scp -O -r addons/wireguard "root@192.168.1.1:$d"; ssh -t root@192.168.1.1 "sh $d/install.sh client add <name>"; scp -O root@192.168.1.1:/tmp/wg-<name>.conf .; ssh root@192.168.1.1 "rm -f /tmp/wg-<name>.conf"
-```
+`add` saves `~/wg-<name>.conf` (delete it once imported).
 
 See [addons/wireguard](addons/wireguard/README.md).
-
-**By hand, when you're done,** delete the configs the blocks wrote. They hold
-passwords, and git ignores them, so nothing else will:
-
-```powershell
-Remove-Item setup/network.conf, addons/wifi-watch/wifi-watch.conf, addons/wireguard/wireguard.conf -ErrorAction SilentlyContinue
-```
 
 ## 4. After every router flash
 
@@ -217,10 +160,10 @@ addons/
   exits, and copies it to `/tmp/bifrost-<part>` on the router. The Telegram
   token never reaches the APs, for example, and the router setup deletes its
   copy (with the root and PPPoE passwords) as soon as it finishes.
-- **Passwords, no SSH keys.** With `sshpass`, `deploy.sh` logs in with
-  `ROOT_PASSWORD`, or an empty password (what a factory image has). Without
-  it, SSH asks (once per step on Linux, where the connection is reused for a
-  minute).
+- **Passwords, no SSH keys, no prompts.** `deploy.sh` logs in with
+  `ROOT_PASSWORD`, or an empty password (what a factory image has), typed by
+  OpenSSH itself through `SSH_ASKPASS`. The password only lives in the
+  environment of each ssh call, never on disk.
 - **Separate pieces.** `setup/` never references an addon, and the
   addons never touch what it owns, so each one runs on its own, in any order.
 - **A router only reboots when it has to.** Each setup script hashes `uci

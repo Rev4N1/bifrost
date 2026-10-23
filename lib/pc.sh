@@ -16,12 +16,17 @@ die()  { printf '%s: %s\n' "${0##*/}" "$*" >&2; exit 1; }
 
 [ -f "$CONF" ] || die "$CONF is missing: cp -n $CONF.example $CONF, then fill it in"
 set +u
+# Without CRs: a bifrost.conf saved by a Windows editor would otherwise
+# carry a \r into every value.
 # shellcheck source=/dev/null  # the user's file, not in this repo
-. "./$CONF"
+. <(tr -d '\r' < "./$CONF")
 set -u
 : "${GW_IP:=}" "${APS:=}" "${ROOT_PASSWORD:=}" "${BOT_TOKEN:=}" "${WG_PORT:=}" \
   "${VPN_SUBNET:=}" "${CLIENT_DNS:=}"
-[ "$(stat -c %a "$CONF")" = 600 ] || warn "chmod 600 $CONF (it holds every password)"
+# Windows file systems have no Unix modes to check.
+if [ "$(uname -s)" = Linux ] && [ "$(stat -c %a "$CONF")" != 600 ]; then
+    warn "chmod 600 $CONF (it holds every password)"
+fi
 
 # require VAR... - each must be set and not CHANGE_ME
 require() {
@@ -162,10 +167,12 @@ stage() {
 
 # ---- ssh ------------------------------------------------------------
 
-# Passwords only. With sshpass installed, ROOT_PASSWORD is typed for
-# you; without it, ssh asks (a factory-fresh router has none). Host keys
-# aren't pinned: every flash makes new ones (LAN only). On Linux, one
-# connection per host is reused for a minute, so a step asks once.
+# Passwords only, typed by OpenSSH itself: SSH_ASKPASS points at a tiny
+# script that prints $BIFROST_PW, so the password lives in the
+# environment of one ssh call and is never written to disk. Needs OpenSSH
+# 8.4+ (SSH_ASKPASS_REQUIRE), which Linux and Git for Windows both have.
+# Host keys aren't pinned: every flash makes new ones (LAN only). On
+# Linux, one connection per host is reused for a minute.
 SSH_OPTS=(-o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3
           -o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
           -o LogLevel=ERROR)
@@ -173,11 +180,25 @@ if [ "$(uname -s)" = Linux ]; then
     mkdir -p ~/.ssh && chmod 700 ~/.ssh
     SSH_OPTS=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/cm-%r@%h:%p" -o ControlPersist=60 "${SSH_OPTS[@]}")
 fi
+read -r _maj _min <<< "$(ssh -V 2>&1 | sed -n 's/^OpenSSH_\([0-9]*\)\.\([0-9]*\).*/\1 \2/p')"
+[ "${_maj:-0}" -gt 8 ] || { [ "${_maj:-0}" -eq 8 ] && [ "${_min:-0}" -ge 4 ]; } \
+    || die "needs OpenSSH 8.4 or newer (ssh -V says: $(ssh -V 2>&1))"
+unset _maj _min
+ASKPASS="$STAGE/askpass"
+printf '#!/bin/sh\nprintf "%%s\\n" "$BIFROST_PW"\n' > "$ASKPASS"
+chmod 700 "$ASKPASS"
 
-# pw_select <host> - decide once per host how to authenticate.
+# with_pw <password> <command...> - run it with ssh answering <password>
+with_pw() {
+    local _pw=$1
+    shift
+    BIFROST_PW=$_pw SSH_ASKPASS=$ASKPASS SSH_ASKPASS_REQUIRE=force DISPLAY="${DISPLAY:-:0}" "$@"
+}
+
+# pw_select <host> - decide once per host which password works.
 # A router's password is either ROOT_PASSWORD (set up) or empty (a
 # factory image, which OpenWrt's dropbear accepts until a root password
-# is set). Probe both with sshpass; otherwise let ssh ask.
+# is set). If neither does, ssh asks on the terminal.
 declare -A PW_MODES=() PW_PASSES=()
 PW_MODE=""
 PW_PASS=""
@@ -190,17 +211,13 @@ pw_select() {
     fi
     PW_MODE=prompt
     PW_PASS=""
-    if command -v sshpass >/dev/null 2>&1; then
-        if [ -n "$ROOT_PASSWORD" ] \
-            && SSHPASS=$ROOT_PASSWORD sshpass -e ssh "${SSH_OPTS[@]}" "root@$_h" true 2>/dev/null; then
-            PW_MODE=sshpass
-            PW_PASS=$ROOT_PASSWORD
-        elif [ "$PW_MODE" = prompt ] \
-            && SSHPASS='' sshpass -e ssh "${SSH_OPTS[@]}" "root@$_h" true 2>/dev/null; then
-            PW_MODE=sshpass
-            PW_PASS=""
+    for _p in "$ROOT_PASSWORD" ""; do
+        if with_pw "$_p" ssh -o NumberOfPasswordPrompts=1 "${SSH_OPTS[@]}" "root@$_h" true 2>/dev/null; then
+            PW_MODE=askpass
+            PW_PASS=$_p
+            break
         fi
-    fi
+    done
     PW_MODES[$_h]=$PW_MODE
     PW_PASSES[$_h]=$PW_PASS
 }
@@ -210,8 +227,8 @@ pw() {
     local _h=$1
     shift
     pw_select "$_h"
-    if [ "$PW_MODE" = sshpass ]; then
-        SSHPASS=$PW_PASS sshpass -e "$@"
+    if [ "$PW_MODE" = askpass ]; then
+        with_pw "$PW_PASS" "$@"
     else
         "$@"
     fi
