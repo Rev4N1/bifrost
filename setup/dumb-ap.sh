@@ -41,7 +41,7 @@ uci set network.lan.proto='static'
 _OLD_LAN=$(uci -q get network.lan.ipaddr)
 uci set network.lan.ipaddr="$AP_IP"
 uci set network.lan.netmask="$NETMASK"
-uci set network.lan.ipv6='0'
+br_no_ipv6
 uci set network.lan.gateway="$GW_IP"
 uci -q delete network.lan.dns
 uci add_list network.lan.dns="$GW_IP"

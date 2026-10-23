@@ -38,14 +38,13 @@ uci set network.wan.proto='pppoe'
 uci set network.wan.username="$PPPOE_USER"
 uci set network.wan.password="$PPPOE_PASS"
 # IPv4 only. Deleting wan6 alone does not stop PPPoE from negotiating
-# IPv6; ipv6=0 does, and the LAN interface is turned off the same way.
+# IPv6; ipv6=0 does (a ppp option). The LAN side is off on br-lan below.
 uci set network.wan.ipv6='0'
 
 uci set network.lan.proto='static'
 _OLD_LAN=$(uci -q get network.lan.ipaddr)
 uci set network.lan.ipaddr="$GW_IP"
 uci set network.lan.netmask="$NETMASK"
-uci set network.lan.ipv6='0'
 uci -q delete network.lan.ip6assign
 uci set network.lan.delegate='0'
 uci -q delete network.globals.ula_prefix
@@ -53,6 +52,7 @@ uci -q delete network.globals.ula_prefix
 _BR=$(br_lan_section)
 [ -n "$_BR" ] || die "no br-lan device found - refusing to leave $WAN_DEVICE in the LAN bridge"
 uci -q del_list "network.$_BR.ports=$WAN_DEVICE" || true
+br_no_ipv6
 setup_packet_steering
 uci commit network
 ok "WAN pppoe on $WAN_DEVICE, LAN $GW_IP"

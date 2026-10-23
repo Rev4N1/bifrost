@@ -171,6 +171,14 @@ br_add_port() {
     fi
 }
 
+# IPv4 only on the LAN. ipv6 is a device option (it turns IPv6 off in
+# the kernel for br-lan); on a static interface it would do nothing.
+br_no_ipv6() {
+    _sec=$(br_lan_section)
+    [ -n "$_sec" ] || die "no br-lan device found"
+    uci set "network.$_sec.ipv6=0"
+}
+
 # Spread packet processing across all CPU cores.
 setup_packet_steering() {
     uci set network.globals.packet_steering='1'
