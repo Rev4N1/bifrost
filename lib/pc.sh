@@ -20,7 +20,7 @@ set +u
 . "./$CONF"
 set -u
 : "${GW_IP:=}" "${APS:=}" "${ROOT_PASSWORD:=}" "${BOT_TOKEN:=}" "${WG_PORT:=}" \
-  "${VPN_SUBNET:=}" "${CLIENT_DNS:=}"
+  "${VPN_SUBNET:=}"
 [ "$(stat -c %a "$CONF")" = 600 ] || warn "chmod 600 $CONF (it holds every password)"
 
 # require VAR... - each must be set and not CHANGE_ME
@@ -94,7 +94,7 @@ ip_in_subnet() {
 
 # check_wg - part 6 of bifrost.conf, before it reaches the router
 check_wg() {
-    require GW_IP NETMASK ROOT_PASSWORD WG_PORT VPN_SUBNET CLIENT_DNS
+    require GW_IP NETMASK ROOT_PASSWORD WG_PORT VPN_SUBNET
     is_ipv4 "$GW_IP" || die "GW_IP must be an IPv4 address"
     is_netmask "$NETMASK" || die "NETMASK must be a contiguous IPv4 mask, /8 to /30"
     is_uint "$WG_PORT" && [ "$WG_PORT" -ge 1 ] && [ "$WG_PORT" -le 65535 ] \

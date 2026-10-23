@@ -96,6 +96,21 @@ wg_zone() {
 
 server_pub() { uci -q get network.wg0.private_key | wg pubkey; }
 
+# vpn_lan_hosts - the LAN addresses the vpn zone may reach: dest_ip of
+# every enabled ACCEPT rule from vpn to lan, as they are now on the router
+# (seeded from VPN_LAN_ACCESS, then whatever LuCI changed).
+vpn_lan_hosts() {
+    _vz=$(uci -q get "firewall.$(wg_zone).name")
+    [ -n "$_vz" ] || return 0
+    for S in $(sections firewall rule); do
+        [ "$(uci -q get "firewall.$S.src")" = "$_vz" ] || continue
+        [ "$(uci -q get "firewall.$S.dest")" = lan ] || continue
+        [ "$(uci -q get "firewall.$S.target")" = ACCEPT ] || continue
+        [ "$(uci -q get "firewall.$S.enabled")" != 0 ] || continue
+        uci -q get "firewall.$S.dest_ip"
+    done | tr ' ' '\n' | grep . | sort -u
+}
+
 endpoint_host() {
     if [ -n "$DUCKDNS_DOMAIN" ]; then
         echo "$DUCKDNS_DOMAIN.duckdns.org"
@@ -351,31 +366,40 @@ client_add() {
 
     _key=$(wg genkey); _psk=$(wg genpsk)
     # An anonymous peer section: a name-derived one could collide when two
-    # client names differ only in . or - (both map to _).
+    # client names differ only in . or - (both map to _). The private key
+    # stays on the peer, like a peer made in LuCI, so LuCI can show its
+    # config and QR code later (Network > Interfaces > wg0 > Peers).
     _sec=$(uci add network wireguard_wg0)
     uci set "network.$_sec.description=$_name"
+    uci set "network.$_sec.private_key=$_key"
     uci set "network.$_sec.public_key=$(echo "$_key" | wg pubkey)"
     uci set "network.$_sec.preshared_key=$_psk"
     uci add_list "network.$_sec.allowed_ips=$_ip/32"
     uci commit network
     ifup wg0 >/dev/null 2>&1
 
-    # The router keeps only the public key; this file is the one copy of
-    # the private key (client.sh fetches it, then deletes it).
+    # Split tunnel: only the router's VPN address (to ping it) and the LAN
+    # hosts the vpn zone may reach go through the tunnel. The client keeps
+    # its own internet and DNS. For a full tunnel, change AllowedIPs to
+    # 0.0.0.0/0 in the client: the router lets VPN traffic out to the WAN.
+    _allowed="$VPN_BASE.1/32"
+    for H in $(vpn_lan_hosts); do
+        case "$H" in */*) ;; *) H="$H/32" ;; esac
+        case ", $_allowed, " in *", $H, "*) ;; *) _allowed="$_allowed, $H" ;; esac
+    done
+
+    # client.sh fetches this file, then deletes it.
     _conf="/tmp/wg-$_name.conf"
     ( umask 077; cat > "$_conf" <<EOF
 [Interface]
 PrivateKey = $_key
 Address = $_ip/32
-DNS = $CLIENT_DNS
 
 [Peer]
 PublicKey = $(server_pub)
 PresharedKey = $_psk
 Endpoint = $_endpoint:$(uci -q get network.wg0.listen_port)
-# ::/0 too, though IPv6 is off here: on a network with IPv6, the client's
-# IPv6 then goes into the tunnel and nowhere, instead of leaking outside.
-AllowedIPs = 0.0.0.0/0, ::/0
+AllowedIPs = $_allowed
 PersistentKeepalive = 25
 EOF
     )

@@ -1,7 +1,9 @@
 # wireguard (addon)
 
-A WireGuard VPN server on the main router: VPN clients reach the internet and
-the services in `VPN_LAN_ACCESS`, and nothing else on the LAN. Everything shows
+A WireGuard VPN server on the main router: VPN clients reach the services in
+`VPN_LAN_ACCESS`, and nothing else on the LAN. New clients are split-tunnel:
+only those hosts go through the VPN, and each client keeps its own internet
+and DNS. Everything shows
 up in LuCI, where you can change it whenever you like.
 
 **`bifrost.conf` seeds it, LuCI owns it.** The first deploy creates each piece
@@ -40,10 +42,10 @@ Desktop, for example) needs `10.7.0.0/24` allowed too.
 
 ## Clients
 
-Either in LuCI (Network → Interfaces → wg0 → Edit → Peers → Add peer:
-generate a key pair and a preshared key, set Allowed IPs to a free
-`10.7.0.x/32`, save, then *Generate configuration…* for the QR code), or from
-the PC:
+From the PC, or in LuCI (Network → Interfaces → wg0 → Edit → Peers → Add
+peer: generate a key pair and a preshared key, set Allowed IPs to a free
+`10.7.0.x/32`, save, then *Generate configuration…* for the QR code). From the
+PC:
 
 ```bash
 ./addons/wireguard/client.sh add phone            # next free IP, QR in the terminal
@@ -58,10 +60,17 @@ Run `./deploy.sh` first (or at least once), so the addon is installed.
 a client IP outside it is refused, because the router would have no route back
 through the tunnel.
 
-Both kinds show up in LuCI and in `client list`. A client added from the PC
-leaves only its public key on the router, and its private key only in
-`~/wg-<name>.conf` (delete it once imported). So LuCI can't show a QR code for
-it later. A peer added in LuCI keeps its private key on the router.
+Both kinds show up in LuCI and in `client list`, and both keep their private
+key on the router, so LuCI can show any client's config and QR code later.
+`add` also saves `~/wg-<name>.conf` on the PC; delete it once imported.
+
+**What a client from `client.sh` routes:** only the router's VPN address
+(`10.7.0.1`, to ping it) and the LAN hosts the `vpn` zone may reach (the
+`dest_ip` of its ACCEPT rules to `lan`, as they are on the router now). There
+is no `DNS =` line, so the client keeps its own DNS. For a full tunnel, set
+`AllowedIPs = 0.0.0.0/0` in that client: the router lets VPN traffic out to
+the internet. LuCI's *Generate configuration…* dialog has its own Allowed IPs
+field; set it the same way there.
 
 ## Check, start over
 

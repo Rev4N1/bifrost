@@ -84,9 +84,9 @@ AP_FAIL_GRACE=10            # checks an AP may be unreachable before it's ignore
 
 WG_PORT=""                  # e.g. 51820 (WireGuard's usual port) to turn it on
 VPN_SUBNET="10.7.0.0/24"    # a /24 that must not overlap the LAN: router .1, clients .2+
-CLIENT_DNS="9.9.9.9, 1.1.1.1"
 VPN_LAN_ACCESS=""           # LAN services VPN clients may reach, "ip:proto:port", e.g. "192.168.1.20:tcp:3389"
-                            # (everything else on the LAN is blocked; give those hosts static IPs)
+                            # (everything else on the LAN is blocked; give those hosts static IPs).
+                            # New clients route only these hosts through the tunnel, not all internet.
 
 # DuckDNS keeps <subdomain>.duckdns.org pointing at your home IP (empty = clients use the WAN IP)
 DUCKDNS_DOMAIN=""           # subdomain only, without .duckdns.org

@@ -11,8 +11,8 @@ just run it again.
   to the best AP, non-overlapping channels, lower 2.4 GHz power, hardware NAT
   offload, packet steering, and optional UPnP.
 - **WireGuard:** a VPN server on the main router, kept reachable by DuckDNS.
-  VPN clients get the internet plus only the LAN services you list. All of it
-  is editable in LuCI.
+  VPN clients reach only the LAN services you list, split-tunnel by default
+  (their own internet and DNS stay local). All of it is editable in LuCI.
 - **Telegram bot:** tells a chat when someone's phone leaves or comes home.
 
 ## 1. What you need
@@ -56,7 +56,7 @@ $shared = 'SSID','WPA_PSK','COUNTRY','MOBILITY_DOMAIN','BW24','BW5','TXPOWER_24'
 $ap     = $shared + 'APS'
 $main   = $shared + @('WAN_DEVICE','PPPOE_USER','PPPOE_PASS','MAIN_HOSTNAME','MAIN_CH24','MAIN_CH5','DNS_LIST','DHCP_DNS_OPTION','UPNP')
 $watch  = 'BOT_TOKEN','CHAT_ID','PEOPLE','PEOPLE_MAC','POLL_INTERVAL','MISSES_TO_LEAVE','CONFIRM_ROUNDS','CONFIRM_GAP','ARPING_TRIES','INITIAL_SETTLE','AP_FAIL_GRACE'
-$wg     = 'WG_PORT','VPN_SUBNET','CLIENT_DNS','VPN_LAN_ACCESS','DUCKDNS_DOMAIN','DUCKDNS_TOKEN'
+$wg     = 'WG_PORT','VPN_SUBNET','VPN_LAN_ACCESS','DUCKDNS_DOMAIN','DUCKDNS_TOKEN'
 ```
 
 By hand, SSH asks the router's root password each time (a factory-fresh router
