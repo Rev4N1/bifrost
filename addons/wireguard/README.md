@@ -18,7 +18,7 @@ bring `wg0` back up.
 | Zone `vpn`: VPN → internet, nothing else | Network → Firewall → Zones | `firewall.wgvpn`, `wgvpn_wan` |
 | One rule per `VPN_LAN_ACCESS` entry (synced every deploy) | Network → Firewall → Traffic Rules | `firewall.wgvpn_lan<N>` |
 | Ping the router from the VPN | Network → Firewall → Traffic Rules | `firewall.wgvpn_ping` |
-| WAN `udp/WG_PORT` open | Network → Firewall → Traffic Rules | `firewall.wgvpn_in` |
+| WAN `udp/VPN_PORT` open | Network → Firewall → Traffic Rules | `firewall.wgvpn_in` |
 | DuckDNS | Services → Dynamic DNS | `ddns.duckdns` |
 
 **The exception: the `wgvpn_lan<N>` rules follow `VPN_LAN_ACCESS` on every
@@ -35,13 +35,66 @@ ping. To manage it over the VPN, add a rule in LuCI.
 `client.sh` in this folder is the PC-side peer tool; it never runs on the
 router.
 
+## WireGuard or AmneziaWG
+
+`VPN` in `bifrost.conf` picks the kind; `none` leaves the VPN alone.
+
+| `VPN=` | Interface | Clients | Packages |
+|---|---|---|---|
+| `wireguard` | `wg0` | any WireGuard app | OpenWrt's own |
+| `amneziawg` | `awg0` | the AmneziaWG app (Android, iOS, Windows, macOS) | [Slava-Shchipunov/awg-openwrt](https://github.com/Slava-Shchipunov/awg-openwrt) feed |
+
+[AmneziaWG](https://docs.amnezia.org/documentation/amnezia-wg/) is WireGuard
+with its packets disguised: junk packets before the handshake, padded
+handshake sizes, and different message headers. The encryption is the same;
+what changes is that a network which detects and blocks WireGuard (some
+office, hotel, school and mobile networks) can't tell what it is. It does not
+help where all UDP is blocked.
+
+Everything else (the `vpn` zone, `VPN_LAN_ACCESS`, DuckDNS, `client.sh`,
+LuCI) works the same for both. The first deploy gives `awg0` random
+obfuscation values (`Jc`, `Jmin`, `Jmax`, `S1`, `S2`, `H1`-`H4`: Network →
+Interfaces → awg0), and `client.sh add` copies them into each client config.
+Those are the settings every AmneziaWG client understands. The newer ones
+(`S3`, `S4`, `I1`-`I5`, AWG 3.x options) can be added in LuCI; then
+re-create the client configs, or use LuCI's *Generate configuration…*.
+
+**The feed.** `kmod-amneziawg` is not in OpenWrt's own repository, and it
+must match the exact kernel. Slava-Shchipunov (the build Amnezia's own docs point to) publishes a signed apk feed per OpenWrt
+release and target (`https://slava-shchipunov.github.io/awg-openwrt/<release>/<target>/`).
+Each deploy points apk at the one for the running release
+(`/etc/apk/repositories.d/bifrost-amneziawg.list`) and installs the feed's
+signing key from this folder (`awg-openwrt-feed.pem`), never one downloaded
+at install time. A new OpenWrt release can take a few days to appear there;
+until it does, the deploy stops with a clear message, so flash a new release
+only once its feed exists (or switch back to `wireguard`).
+
+**No reboot.** A first install loads the module and restarts netifd (a few
+seconds' outage). Only an *upgrade* of `kmod-amneziawg` on a running router
+needs a reboot for the new module to load.
+
+**Switching kinds.** Only one runs at a time (same subnet, same zone). Set
+`VPN` (and `VPN_PORT`, if it should change) and deploy: the deploy moves the
+old interface into the new one. The server key, the address, every client
+(keys, IPs, names), the `vpn` zone and its LAN rules carry over; the listen
+port and the WAN rule follow `VPN_PORT`. Each client then needs a new config,
+for the other app and its settings:
+
+```bash
+./deploy.sh
+./addons/wireguard/client.sh show phone    # config + QR for an existing client
+```
+
+The switch restarts netifd, so a client connected through the old VPN drops
+until it imports its new config. Do it from the LAN if you can.
+
 ## Install
 
 ```bash
 ./deploy.sh
 ```
 
-That is the whole deploy, and it applies the addon whenever `WG_PORT` is set.
+That is the whole deploy, and it applies the addon whenever `VPN` is `wireguard` or `amneziawg`.
 There is no separate WireGuard command.
 
 VPN traffic to the LAN isn't NAT'd, so LAN hosts see the client's `10.7.0.x`

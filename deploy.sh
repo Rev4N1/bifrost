@@ -42,7 +42,7 @@ MAIN_VARS="$SHARED_VARS WAN_DEVICE PPPOE_USER PPPOE_PASS MAIN_HOSTNAME MAIN_CH24
            DNS_LIST UPNP"
 WATCH_VARS="BOT_TOKEN CHAT_ID PEOPLE PEOPLE_MAC AP_IPS POLL_INTERVAL MISSES_TO_LEAVE
             CONFIRM_ROUNDS CONFIRM_GAP ARPING_TRIES INITIAL_SETTLE AP_FAIL_GRACE"
-WG_VARS="WG_PORT VPN_SUBNET CLIENT_DNS VPN_LAN_ACCESS DUCKDNS_DOMAIN DUCKDNS_TOKEN"
+WG_VARS="VPN VPN_PORT VPN_SUBNET CLIENT_DNS VPN_LAN_ACCESS DUCKDNS_DOMAIN DUCKDNS_TOKEN"
 
 usage() {
     cat <<'EOF'
@@ -351,7 +351,7 @@ cmd_wifi_watch() {
 
 cmd_wireguard() {
     check_wg
-    say "wireguard addon on $GW_IP"
+    say "wireguard addon ($VPN) on $GW_IP"
     router_run "$GW_IP" "$(stage addons/wireguard wireguard.conf "$WG_VARS")" \
         "sh @DIR@/install.sh" \
         || die "wireguard failed on $GW_IP"
@@ -363,7 +363,7 @@ cmd_wireguard() {
 cmd_check() {
     require_main
     [ -z "$BOT_TOKEN" ] || check_watch
-    [ -z "$WG_PORT" ] || check_wg
+    ! vpn_on || check_wg
     local rc=0 ip h expected _e _aip
     say "checking $GW_IP and the APs in bifrost.conf"
     for ip in "$GW_IP" $AP_IPS; do
@@ -435,7 +435,7 @@ cmd_all() {
     # Validate the addons before touching a router: a typo in part 6
     # should stop the run, not surface after the network is reconfigured.
     [ -z "$BOT_TOKEN" ] || check_watch
-    [ -z "$WG_PORT" ] || check_wg
+    ! vpn_on || check_wg
     cmd_main
     for e in $APS; do cmd_ap "${e%%,*}" || rc=1; done
     if [ "$rc" != 0 ]; then
@@ -452,7 +452,7 @@ cmd_all() {
         return 0
     fi
     if [ -n "$BOT_TOKEN" ]; then cmd_wifi_watch; else echo "(BOT_TOKEN empty - skipping wifi-watch)"; fi
-    if [ -n "$WG_PORT" ]; then cmd_wireguard; else echo "(WG_PORT empty - skipping wireguard)"; fi
+    if vpn_on; then cmd_wireguard; else echo "(VPN=none - skipping wireguard)"; fi
     say "done"
 }
 

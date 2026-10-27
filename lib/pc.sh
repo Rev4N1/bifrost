@@ -28,8 +28,15 @@ set +u
 # shellcheck source=/dev/null  # the user's file, not in this repo
 . <(tr -d '\r' < "./$CONF")
 set -u
-: "${GW_IP:=}" "${APS:=}" "${ROOT_PASSWORD:=}" "${BOT_TOKEN:=}" "${WG_PORT:=}" \
-  "${VPN_SUBNET:=}" "${CLIENT_DNS:=}"
+: "${GW_IP:=}" "${APS:=}" "${ROOT_PASSWORD:=}" "${BOT_TOKEN:=}" "${VPN_PORT:=}" \
+  "${VPN_SUBNET:=}" "${CLIENT_DNS:=}" "${VPN:=}" "${WG_PORT:=}"
+# VPN picks the kind: none, wireguard or amneziawg. A bifrost.conf from
+# before VPN existed named the port WG_PORT, and turned WireGuard on with
+# it alone.
+VPN_PORT=${VPN_PORT:-$WG_PORT}
+if [ -z "$VPN" ]; then
+    if [ -n "$VPN_PORT" ]; then VPN=wireguard; else VPN=none; fi
+fi
 # Windows file systems have no Unix modes to check.
 if [ "$(uname -s)" = Linux ] && [ "$(stat -c %a "$CONF")" != 600 ]; then
     warn "chmod 600 $CONF (it holds every password)"
@@ -108,13 +115,21 @@ ip_in_subnet() {
     [ "$(( $(ip_to_int "$1") & _m ))" -eq "$(( $(ip_to_int "$2") & _m ))" ]
 }
 
+# vpn_on - VPN names a kind, not none
+vpn_on() { [ "$VPN" != none ]; }
+
 # check_wg - part 6 of bifrost.conf, before it reaches the router
 check_wg() {
-    require GW_IP NETMASK ROOT_PASSWORD WG_PORT VPN_SUBNET
+    case "$VPN" in
+        wireguard | amneziawg) ;;
+        none) die "VPN=none in $CONF: the VPN is off" ;;
+        *) die "VPN must be none, wireguard or amneziawg, not '$VPN'" ;;
+    esac
+    require GW_IP NETMASK ROOT_PASSWORD VPN_PORT VPN_SUBNET
     is_ipv4 "$GW_IP" || die "GW_IP must be an IPv4 address"
     is_netmask "$NETMASK" || die "NETMASK must be a contiguous IPv4 mask, /8 to /30"
-    is_uint "$WG_PORT" && [ "$WG_PORT" -ge 1 ] && [ "$WG_PORT" -le 65535 ] \
-        || die "WG_PORT must be 1-65535"
+    is_uint "$VPN_PORT" && [ "$VPN_PORT" -ge 1 ] && [ "$VPN_PORT" -le 65535 ] \
+        || die "VPN_PORT must be 1-65535"
     case "$VPN_SUBNET" in
         *.0/24) is_ipv4 "${VPN_SUBNET%/*}" || die "VPN_SUBNET has no IPv4 address" ;;
         *) die "VPN_SUBNET must be a /24 starting at .0 (e.g. 10.7.0.0/24)" ;;

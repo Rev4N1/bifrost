@@ -1,8 +1,8 @@
 # Bifrost
 
 The bridge to and across your home network, as code. OpenWrt routers (one main
-router plus dumb APs over a wired backhaul), an optional WireGuard VPN on the
-main router, and an optional Telegram home/away bot, all deployed from your PC
+router plus dumb APs over a wired backhaul), an optional WireGuard or AmneziaWG VPN on
+the main router, and an optional Telegram home/away bot, all deployed from your PC
 with one command. Every step is safe to re-run, so after a firmware flash you
 just run it again.
 
@@ -13,7 +13,8 @@ just run it again.
 - **WireGuard:** a VPN server on the main router, kept reachable by DuckDNS.
   VPN clients reach only the LAN services you list and route only those
   through the tunnel (full tunnel when none are listed). All of it is
-  editable in LuCI.
+  editable in LuCI. `VPN=amneziawg` swaps in AmneziaWG, WireGuard with
+  disguised packets, for networks that block VPNs.
 - **Telegram bot:** tells a chat when someone's phone leaves or comes home.
 
 The whole design is IPv4-only on the LAN and WAN, and targets **OpenWrt 25.12**
@@ -37,8 +38,8 @@ cp -n bifrost.conf.example bifrost.conf
 ```
 
 Open it and go top to bottom; it is ordered the way you fill it in. Replace
-every `CHANGE_ME`. Parts 5 (Telegram) and 6 (WireGuard) are optional and stay
-off while empty. Nothing about your layout is hard-coded: part 4 lists each AP
+every `CHANGE_ME`. Parts 5 (Telegram) and 6 (VPN) are optional and stay
+off while empty (`VPN="none"`). Nothing about your layout is hard-coded: part 4 lists each AP
 as `hostname,ip,ch24,ch5`.
 
 `bifrost.conf` is git-ignored and holds every password, so keep a backup
@@ -97,8 +98,8 @@ again:
 ```
 
 This reaches all of them, finishes their package and Wi-Fi setup, and applies
-the addons. The Telegram bot is applied when `BOT_TOKEN` is set; WireGuard
-when `WG_PORT` is set.
+the addons. The Telegram bot is applied when `BOT_TOKEN` is set; the VPN
+when `VPN` is `wireguard` or `amneziawg`.
 
 ## 4. Day-to-day
 
@@ -118,11 +119,12 @@ Useful companions:
 ./deploy.sh backup   # sysupgrade backup of every router -> ~/bifrost-backups/<timestamp>/
 ```
 
-**WireGuard clients** are the one thing that is not deploy. Add, list or revoke
+**VPN clients** are the one thing that is not deploy. Add, list or revoke
 one peer at a time from the PC:
 
 ```bash
 ./addons/wireguard/client.sh add <name>
+./addons/wireguard/client.sh show <name>     # its config + QR again (e.g. after switching VPN kinds)
 ./addons/wireguard/client.sh list
 ./addons/wireguard/client.sh revoke <name>
 ```
@@ -168,7 +170,7 @@ The Telegram bot has its own operating notes in
 - `wifi-watch` installs its own SSH key on the APs and queries hostapd for
   associated stations. It never changes network, wireless, DHCP or firewall
   config.
-- `wireguard` seeds `wg0`, a `vpn` firewall zone, WAN UDP, and optional
+- `wireguard` seeds `wg0` (or `awg0` for AmneziaWG), a `vpn` firewall zone, WAN UDP, and optional
   DuckDNS once; after that, LuCI owns it.
 
 ## 6. Layout
