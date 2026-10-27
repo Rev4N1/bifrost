@@ -20,7 +20,7 @@
 #   - interface wg0/awg0 with its key  (network.wg0 / network.awg0)
 #   - the "vpn" zone: VPN -> internet, VPN -> the services in
 #     VPN_LAN_ACCESS, nothing else     (firewall.wgvpn*)
-#   - WAN udp/VPN_PORT open             (firewall.wgvpn_in)
+#   - WAN udp/VPN_PORT open            (firewall.wgvpn_in)
 #   - DuckDNS                          (ddns.duckdns)
 #
 #   install.sh                         install / repair

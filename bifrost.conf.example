@@ -91,7 +91,7 @@ VPN="none"                  # none | wireguard | amneziawg
                             #              detect and block VPNs let it through; clients need
                             #              the AmneziaWG app. Packages from the Slava-Shchipunov/awg-openwrt feed.
                             # Switching kinds keeps every client and LAN rule; each client then needs a new config (README).
-VPN_PORT=""                  # UDP port to listen on, e.g. 51820 (needed unless VPN is none)
+VPN_PORT=""                 # UDP port to listen on, e.g. 51820 (needed unless VPN is none)
 VPN_SUBNET="10.7.0.0/24"    # a /24 that must not overlap the LAN: router .1, clients .2+
 CLIENT_DNS=""               # DNS for clients, e.g. "9.9.9.9, 1.1.1.1"; empty = no DNS line, they keep their own
 VPN_LAN_ACCESS=""           # LAN services VPN clients may reach, "ip:proto:port", e.g. "192.168.1.20:tcp:3389"

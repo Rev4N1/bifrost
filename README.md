@@ -10,7 +10,7 @@ just run it again.
   steering and 802.11w protected management frames, `usteer` nudging devices
   to the best AP, explicit channels, lower 2.4 GHz power, hardware NAT
   offload, packet steering, and optional UPnP.
-- **WireGuard:** a VPN server on the main router, kept reachable by DuckDNS.
+- **VPN:** a WireGuard server on the main router, kept reachable by DuckDNS.
   VPN clients reach only the LAN services you list and route only those
   through the tunnel (full tunnel when none are listed). All of it is
   editable in LuCI. `VPN=amneziawg` swaps in AmneziaWG, WireGuard with
